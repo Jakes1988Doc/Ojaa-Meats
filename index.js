@@ -389,6 +389,155 @@ async function getMenu() {
   return menuCache;
 }
 
+// ─── STOCK ON HAND ───────────────────────────────────────────
+let stockCache = {};
+let stockCacheTime = 0;
+const STOCK_CACHE_TTL = 60 * 1000; // 1 min cache
+
+async function getStockOnHand() {
+  const now = Date.now();
+  if (Object.keys(stockCache).length > 0 && (now - stockCacheTime) < STOCK_CACHE_TTL) {
+    return stockCache;
+  }
+  try {
+    const sheets = await getSheetsClient();
+    const [stockRes, lineItemsRes] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Stock on hand' }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Line items' }),
+    ]);
+
+    const stockRows = stockRes.data.values || [];
+    if (stockRows.length < 4) { stockCache = {}; return stockCache; }
+
+    // Date is in cell C2 (row index 1, col index 2)
+    const stockDateStr = stockRows[1]?.[2] || '';
+    // Parse DD/MM/YYYY
+    let stockDate = null;
+    if (stockDateStr) {
+      const parts = stockDateStr.split('/');
+      if (parts.length === 3) {
+        stockDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      }
+    }
+
+    // Read items + starting stock - rows from index 3 onwards (header in row 3, data row 4+)
+    // Headers row is at index 3: Item | Starting stock | Orders | Stock on hand
+    const headerRow = stockRows[3] || [];
+    const itemIdx = headerRow.indexOf('Item');
+    const startIdx = headerRow.indexOf('Starting stock');
+    const items = {};
+    for (let i = 4; i < stockRows.length; i++) {
+      const row = stockRows[i];
+      const name = row[itemIdx];
+      const start = parseFloat(row[startIdx]) || 0;
+      if (name) items[name] = { start, sold: 0 };
+    }
+
+    // Sum line items since stock date
+    const liRows = lineItemsRes.data.values || [];
+    if (liRows.length > 1) {
+      const liHeaders = liRows[0];
+      const tsIdx  = liHeaders.indexOf('Timestamp');
+      const prodIdx = liHeaders.indexOf('Product');
+      const qtyIdx  = liHeaders.indexOf('Qty');
+      for (let i = 1; i < liRows.length; i++) {
+        const r = liRows[i];
+        const ts = new Date(r[tsIdx]);
+        if (stockDate && ts < stockDate) continue;
+        const prod = r[prodIdx];
+        const qty = parseFloat(r[qtyIdx]) || 0;
+        if (items[prod]) items[prod].sold += qty;
+      }
+    }
+
+    // Build stock-on-hand map
+    const result = {};
+    for (const [name, v] of Object.entries(items)) {
+      result[name] = v.start - v.sold;
+    }
+    stockCache = result;
+    stockCacheTime = now;
+  } catch (err) {
+    console.error('Stock load error:', err.message);
+  }
+  return stockCache;
+}
+
+async function updateStockSheet() {
+  try {
+    const sheets = await getSheetsClient();
+    const [stockRes, lineItemsRes] = await Promise.all([
+      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Stock on hand' }),
+      sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Line items' }),
+    ]);
+    const stockRows = stockRes.data.values || [];
+    if (stockRows.length < 5) return;
+
+    // Parse stock date from C2 (DD/MM/YYYY)
+    const stockDateStr = stockRows[1]?.[2] || '';
+    let stockDate = null;
+    if (stockDateStr) {
+      const parts = stockDateStr.split('/');
+      if (parts.length === 3) {
+        stockDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+      }
+    }
+
+    const headerRow = stockRows[3] || [];
+    const itemIdx   = headerRow.indexOf('Item');
+    const startIdx  = headerRow.indexOf('Starting stock');
+    const ordersIdx = headerRow.indexOf('Orders');
+    const sohIdx    = headerRow.indexOf('Stock on hand');
+
+    // Sum sold quantities by product since stock date
+    const soldByProduct = {};
+    const liRows = lineItemsRes.data.values || [];
+    if (liRows.length > 1) {
+      const liHeaders = liRows[0];
+      const tsIdx   = liHeaders.indexOf('Timestamp');
+      const prodIdx = liHeaders.indexOf('Product');
+      const qtyIdx  = liHeaders.indexOf('Qty');
+      for (let i = 1; i < liRows.length; i++) {
+        const r = liRows[i];
+        const ts = new Date(r[tsIdx]);
+        if (stockDate && ts < stockDate) continue;
+        const prod = r[prodIdx];
+        const qty = parseFloat(r[qtyIdx]) || 0;
+        soldByProduct[prod] = (soldByProduct[prod] || 0) + qty;
+      }
+    }
+
+    // Build update batch
+    const updates = [];
+    for (let i = 4; i < stockRows.length; i++) {
+      const row = stockRows[i];
+      const name = row[itemIdx];
+      if (!name) continue;
+      const start  = parseFloat(row[startIdx]) || 0;
+      const sold   = soldByProduct[name] || 0;
+      const onHand = start - sold;
+      // Update Orders column and Stock on hand column for this row
+      const rowNum = i + 1; // 1-indexed
+      const ordersCol = String.fromCharCode(65 + ordersIdx);
+      const sohCol    = String.fromCharCode(65 + sohIdx);
+      updates.push({ range: `Stock on hand!${ordersCol}${rowNum}`, values: [[sold]] });
+      updates.push({ range: `Stock on hand!${sohCol}${rowNum}`, values: [[onHand]] });
+    }
+
+    if (updates.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: { valueInputOption: 'USER_ENTERED', data: updates },
+      });
+    }
+
+    // Invalidate stock cache so next read is fresh
+    stockCacheTime = 0;
+  } catch (err) {
+    console.error('Stock sheet update error:', err.message);
+  }
+}
+
 // ─── SESSIONS ────────────────────────────────────────────────
 const sessions = {};
 function getSession(phone) {
@@ -549,6 +698,7 @@ async function logOrderToSheets(phone, orderNum, cart, total, customerName, deli
     Phone: phone,
     Name: customerName || '',
     Items: items,
+    VAT: (total - total / 1.15).toFixed(2),
     Total: total,
     Delivery_Type: deliveryType,
     Delivery_Address: deliveryAddress,
@@ -687,11 +837,20 @@ async function sendList(to, body, buttonText, sections) {
 
 async function buildMenuSections(cart = {}) {
   const menu = await getMenu();
-  const rows = menu.map(m => ({
-    id: `item_${m.letter}`,
-    title: m.name.length > 24 ? m.name.substring(0, 24) : m.name,
-    description: `${m.unit} — R${m.price}`,
-  }));
+  const stock = await getStockOnHand();
+  const rows = menu.map(m => {
+    const onHand = stock[m.name];
+    const isOutOfStock = onHand !== undefined && onHand < 1;
+    let title = m.name.length > 24 ? m.name.substring(0, 24) : m.name;
+    if (isOutOfStock) {
+      title = `(OOS) ${m.name}`.substring(0, 24);
+    }
+    return {
+      id: `item_${m.letter}`,
+      title,
+      description: isOutOfStock ? 'Out of stock' : `${m.unit} — R${m.price}`,
+    };
+  });
   const sections = [{ title: 'Our Products', rows }];
   if (Object.keys(cart).length > 0) {
     sections.push({
@@ -717,7 +876,21 @@ async function sendMenuList(to, cart = {}, body = null) {
 }
 
 async function sendQuantityButtons(to, itemName) {
-  await sendButtons(to, `How many *${itemName}* would you like?`, ['1', '2', '3']);
+  await sendList(
+    to,
+    `How many *${itemName}* would you like?`,
+    'Select quantity',
+    [{
+      title: 'Quantity',
+      rows: [
+        { id: 'qty_1', title: '1' },
+        { id: 'qty_2', title: '2' },
+        { id: 'qty_3', title: '3' },
+        { id: 'qty_4', title: '4' },
+        { id: 'qty_5', title: '5' },
+      ],
+    }]
+  );
 }
 
 async function sendMoreQuantityButtons(to, itemName) {
@@ -762,6 +935,16 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
     session.cart  = {};
   }
 
+  // Handle Contact us and Delivery info from anywhere in the flow
+  if (interactiveId === 'btn_contact' || upper === 'CONTACT US') {
+    await sendMessage(phone, `You can reach us at:\n\n📞 *+27 82 617 9993 (Ross)*\n\n_or_\n\n📧 *bronnie@infin.co.za*\n\nWe are available Mon-Fri, 8:30am-5pm.`);
+    return;
+  }
+  if (interactiveId === 'btn_delivery' || upper === 'DELIVERY INFO') {
+    await sendMessage(phone, `We deliver Mon-Fri, 8:30am-5pm in Pietermaritzburg.\nWe will reach out to you for further details on your delivery.\n\n🚚 Delivery available within 5km of our workshop only.`);
+    return;
+  }
+
   if (session.state === 'welcome') {
     session.state = 'ordering';
     await updateSessionInSheets(phone, session);
@@ -772,12 +955,12 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
 
   if (session.state === 'ordering') {
     if (upper === 'CONTACT US') {
-      await sendMessage(phone, `You can reach us at:\n\n📞 *033 XXX XXXX*\n📧 *bronnie@infin.co.za*\n\nWe are available Mon-Sat, 7am-5pm.`);
+      await sendMessage(phone, `You can reach us at:\n\n📞 *+27 82 617 9993 (Ross)*\n\n_or_\n\n📧 *bronnie@infin.co.za*\n\nWe are available Mon-Fri, 8:30am-5pm.`);
       await sendMenuList(phone, session.cart);
       return;
     }
     if (upper === 'DELIVERY INFO') {
-      await sendMessage(phone, 'We deliver Mon-Sat, 7am-5pm in Pietermaritzburg.\nOrder before 12pm for same-day delivery.');
+      await sendMessage(phone, 'We deliver Mon-Fri, 8:30am-5pm in Pietermaritzburg.\nWe will reach out to you for further details on your delivery.');
       await sendMenuList(phone, session.cart);
       return;
     }
@@ -814,20 +997,76 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
     const menu = await getMenu();
     const selectedByList = menu.find(m => interactiveId === `item_${m.letter}`);
     if (selectedByList) {
+      const stock = await getStockOnHand();
+      const onHand = stock[selectedByList.name];
+      if (onHand !== undefined && onHand < 1) {
+        await sendMessage(phone, `Sorry, *${selectedByList.name}* is currently out of stock. Please choose another item.`);
+        await sendMenuList(phone, session.cart);
+        return;
+      }
       session.pendingItem = selectedByList;
       await updateSessionInSheets(phone, session);
       await sendQuantityButtons(phone, selectedByList.name);
       return;
     }
 
-    // Customer selected quantity via buttons (1, 2, 3, 4, 5, 10)
+    // Handle response to stock-cap offer
+    if (session.pendingStockCap) {
+      const cap = session.pendingStockCap;
+      if (['YES', 'YES, ORDER ' + cap, 'ORDER ' + cap].includes(upper)) {
+        const item = session.pendingItem;
+        session.cart[item.letter] = { ...item, qty: cap };
+        session.pendingItem = null;
+        session.pendingStockCap = null;
+        await updateSessionInSheets(phone, session);
+        const { text: cartSummaryText } = cartSummary(session.cart);
+        await sendList(
+          phone,
+          `✅ *${item.name} x${cap}* added to your order.\n\n${cartSummaryText}\n\nTap *View Menu & Order* to add more items or *Finalise Order* when done 👇`,
+          '🛒 View Menu & Order',
+          await buildMenuSections(session.cart)
+        );
+        await sendButtons(phone, 'Ready to checkout?', ['✅ Finalise Order', 'Cancel']);
+        return;
+      }
+      if (['NO', 'CANCEL'].includes(upper)) {
+        session.pendingItem = null;
+        session.pendingStockCap = null;
+        await updateSessionInSheets(phone, session);
+        await sendMessage(phone, 'No problem. Choose another item below.');
+        await sendMenuList(phone, session.cart);
+        return;
+      }
+    }
+
+    // Customer selected quantity via buttons (1, 2, 3, 4, 5)
     const qty = parseInt(msg);
     if (!isNaN(qty) && qty > 0 && qty <= 5 && session.pendingItem) {
       const item = session.pendingItem;
+      // Check stock
+      const stock = await getStockOnHand();
+      const onHand = stock[item.name];
+      if (onHand !== undefined && qty > onHand) {
+        if (onHand < 1) {
+          session.pendingItem = null;
+          await updateSessionInSheets(phone, session);
+          await sendMessage(phone, `Sorry, *${item.name}* is out of stock.`);
+          await sendMenuList(phone, session.cart);
+          return;
+        }
+        // Offer to cap qty at available stock
+        session.pendingStockCap = onHand;
+        await updateSessionInSheets(phone, session);
+        await sendButtons(
+          phone,
+          `Sorry, only *${onHand}* x ${item.name} available. Would you like to order ${onHand} instead?`,
+          [`Yes, order ${onHand}`, 'No, cancel']
+        );
+        return;
+      }
       session.cart[item.letter] = { ...item, qty };
       session.pendingItem = null;
       await updateSessionInSheets(phone, session);
-      // Put confirmation text inside the menu list message so it appears as one bubble
       const { text: cartSummaryText } = cartSummary(session.cart);
       await sendList(
         phone,
@@ -853,7 +1092,7 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       await updateSessionInSheets(phone, session);
       await sendMessage(phone, `✅ Order *${orderNum}* confirmed!\n\n${summary}`);
       await sendButtons(phone, 'How would you like to receive your order?\n\n🚚 *Delivery available within 5km of our workshop only.*', [
-        '🏭 Workshop Collection',
+        '🏭 Workshop',
         '🚚 Delivery',
       ]);
       return;
@@ -884,11 +1123,12 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
 
     if (['🏭 WORKSHOP', 'WORKSHOP COLLECTION', 'WORKSHOP'].includes(upper) || interactiveId === 'btn_0') {
       session.deliveryType = 'Collection - Workshop';
-      session.deliveryAddress = 'WORKSHOP_ADDRESS_PLACEHOLDER';
+      session.deliveryAddress = '';
       session.state = 'payment';
       await updateSessionInSheets(phone, session);
       await logOrderToSheets(phone, orderNum, session.cart, total, customerName, session.deliveryType, session.deliveryAddress);
-      await sendMessage(phone, `Great! Please collect your order from:\n\n📍 *WORKSHOP_ADDRESS_PLACEHOLDER*\n\n${paymentInstructions(orderNum, total)}`);
+      await updateStockSheet();
+      await sendMessage(phone, `Great! Please collect your order from:\n\n📍 *14 Loftus Street, Murrayfield Park, Mkondeni*\n\n${paymentInstructions(orderNum, total)}`);
       await sendInvoiceAndSaveToDrive(phone, orderNum, session.cart, customerName);
       return;
     }
@@ -903,7 +1143,7 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
 
     // Fallback - re-show options
     await sendButtons(phone, 'How would you like to receive your order?\n\n🚚 *Delivery available within 5km of our workshop only.*', [
-      '🏭 Workshop Collection',
+      '🏭 Workshop',
       '🚚 Delivery',
     ]);
     return;
@@ -916,6 +1156,7 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
     session.state = 'payment';
     await updateSessionInSheets(phone, session);
     await logOrderToSheets(phone, orderNum, session.cart, total, customerName, session.deliveryType, session.deliveryAddress);
+    await updateStockSheet();
     await sendMessage(phone, `Got it! We will deliver to:\n\n📍 *${text}*\n\n${paymentInstructions(orderNum, total)}`);
     await sendInvoiceAndSaveToDrive(phone, orderNum, session.cart, customerName);
     return;
@@ -926,11 +1167,11 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       session.state = 'done';
       await updateSessionInSheets(phone, session);
       await sheetsUpdate('Orders', 'Order_num', session.orderNum, { Paid: 'YES' });
-      await sendMessage(phone, `Thank you! We will verify your payment and confirm your delivery slot shortly.\n\nOrder: *${session.orderNum}*\n\nIf you have any questions call us on 033 XXX XXXX.`);
+      await sendMessage(phone, `Thank you! We will verify your payment and confirm your delivery slot shortly.\n\nOrder: *${session.orderNum}*\n\nIf you have any questions call us on +27 82 617 9993 (Ross).`);
       return;
     }
     if (upper === 'HELP') {
-      await sendMessage(phone, `No problem! Call us on 033 XXX XXXX or reply here.\n\nOrder: *${session.orderNum}*`);
+      await sendMessage(phone, `No problem! Call us on +27 82 617 9993 (Ross) or reply here.\n\nOrder: *${session.orderNum}*`);
       return;
     }
     const { total } = cartSummary(session.cart);
@@ -978,6 +1219,21 @@ app.get('/dashboard-data', async (req, res) => {
   } catch (err) {
     console.error('Dashboard data error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/register-number', async (req, res) => {
+  try {
+    const pin = req.query.pin || '111222';
+    const result = await axios.post(
+      `https://graph.facebook.com/v19.0/${CONFIG.PHONE_NUMBER_ID}/register`,
+      { messaging_product: 'whatsapp', pin },
+      { headers: { Authorization: `Bearer ${CONFIG.WA_TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+    res.json({ success: true, pin, data: result.data });
+  } catch (err) {
+    console.error('Register error:', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data || err.message });
   }
 });
 
@@ -1084,5 +1340,16 @@ app.post('/webhook', async (req, res) => {
 app.get('/', (req, res) => res.json({ bot: CONFIG.BUSINESS_NAME, status: 'running' }));
 
 getMenu().then(m => console.log(`Startup: ${m.length} menu items loaded`));
+
+// Background stock refresh every 2 minutes
+setInterval(async () => {
+  try {
+    stockCacheTime = 0; // invalidate cache
+    await getStockOnHand();
+    console.log('Stock cache refreshed in background');
+  } catch (err) {
+    console.error('Background stock refresh error:', err.message);
+  }
+}, 2 * 60 * 1000);
 
 app.listen(CONFIG.PORT, () => console.log(`${CONFIG.BUSINESS_NAME} bot running on port ${CONFIG.PORT}`));
