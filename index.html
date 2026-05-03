@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ojaa Meats &amp; More — Fresh Meat Delivered in Pietermaritzburg</title>
+<meta name="description" content="Quality fresh meat, biltong, boerewors and dry wors. Delivery and collection in Pietermaritzburg. Order via WhatsApp.">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --green: #1a7a4a;
+    --green-dark: #0e1a0e;
+    --cream: #f7f4ee;
+    --text: #1a2e22;
+    --muted: #5a6b5e;
+    --border: #e2dccf;
+  }
+
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    color: var(--text);
+    background: var(--cream);
+    line-height: 1.6;
+  }
+
+  /* HERO */
+  .hero {
+    background: linear-gradient(135deg, #0e1a0e 0%, #1a2e22 100%);
+    color: white;
+    padding: 80px 24px 100px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(circle at 20% 30%, rgba(26,122,74,0.3) 0%, transparent 50%),
+      radial-gradient(circle at 80% 70%, rgba(168,224,99,0.15) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .hero-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+  .badge {
+    display: inline-block;
+    padding: 6px 14px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 100px;
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #a8e063;
+    margin-bottom: 24px;
+  }
+  h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(2.6rem, 7vw, 5.5rem);
+    line-height: 1;
+    letter-spacing: 0.02em;
+    margin-bottom: 20px;
+  }
+  h1 span { color: #a8e063; }
+  .hero-tagline {
+    font-size: clamp(1rem, 2vw, 1.25rem);
+    color: #c8d8c8;
+    margin-bottom: 40px;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 32px;
+    background: #25d366;
+    color: white;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1.05rem;
+    border-radius: 100px;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 4px 16px rgba(37,211,102,0.4);
+  }
+  .cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(37,211,102,0.5);
+  }
+
+  /* SECTION */
+  section {
+    padding: 80px 24px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(2rem, 4vw, 2.8rem);
+    letter-spacing: 0.04em;
+    margin-bottom: 40px;
+    text-align: center;
+  }
+  h2 span { color: var(--green); }
+
+  /* PRODUCTS */
+  .products {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 20px;
+  }
+  .product {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px 24px;
+    text-align: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .product:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.08);
+  }
+  .product-icon {
+    font-size: 2.4rem;
+    margin-bottom: 12px;
+    display: block;
+  }
+  .product-name {
+    font-weight: 600;
+    font-size: 1.05rem;
+    margin-bottom: 4px;
+  }
+  .product-desc {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+
+  /* HOW IT WORKS */
+  .how {
+    background: white;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 32px;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+  .step {
+    text-align: center;
+  }
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--green);
+    color: white;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.5rem;
+    margin-bottom: 16px;
+  }
+  .step h3 {
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+  }
+  .step p {
+    color: var(--muted);
+    font-size: 0.95rem;
+  }
+
+  /* CONTACT */
+  .contact-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 24px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  .contact-card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    text-align: center;
+  }
+  .contact-card .icon { font-size: 1.8rem; margin-bottom: 12px; }
+  .contact-card .label {
+    font-size: 0.78rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .contact-card .value {
+    font-weight: 600;
+    font-size: 1.05rem;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .contact-card .value:hover { color: var(--green); }
+
+  /* FOOTER */
+  footer {
+    background: var(--green-dark);
+    color: #c8d8c8;
+    padding: 40px 24px;
+    text-align: center;
+    font-size: 0.9rem;
+  }
+  footer a { color: #a8e063; text-decoration: none; }
+  .footer-links {
+    margin-top: 12px;
+    font-size: 0.85rem;
+  }
+  .footer-links a { margin: 0 8px; }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-inner">
+    <div class="badge">Pietermaritzburg · Quality Meats</div>
+    <h1>Ojaa Meats <span>&amp; More</span></h1>
+    <p class="hero-tagline">Fresh, quality meat delivered to your door. Boerewors, biltong, dry wors, short rib and more — order on WhatsApp in seconds.</p>
+    <a href="https://wa.me/27824278347" class="cta">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M17.5 14.4c-.3-.1-1.7-.8-1.9-.9-.3-.1-.5-.2-.7.1-.2.3-.8.9-1 1.1-.2.2-.4.2-.6.1-.3-.1-1.2-.4-2.3-1.4-.8-.7-1.4-1.6-1.6-1.9-.2-.3 0-.4.1-.6.1-.1.3-.4.4-.5.1-.2.2-.3.3-.5.1-.2 0-.4 0-.5 0-.1-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.4 0 1.4 1 2.8 1.2 3 .1.2 2 3 4.8 4.2.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.5-.1 1.7-.7 1.9-1.4.2-.7.2-1.2.2-1.4-.1-.1-.3-.2-.6-.3zM12 22c-1.6 0-3.2-.4-4.6-1.2L3 22l1.3-4.2C3.5 16.5 3 14.8 3 13 3 8 7 4 12 4s9 4 9 9-4 9-9 9z"/></svg>
+      Order on WhatsApp
+    </a>
+  </div>
+</div>
+
+<!-- PRODUCTS -->
+<section>
+  <h2>Our <span>Products</span></h2>
+  <div class="products">
+    <div class="product">
+      <span class="product-icon">🥩</span>
+      <div class="product-name">Boerewors</div>
+      <div class="product-desc">Spicey or Salt &amp; Pepper</div>
+    </div>
+    <div class="product">
+      <span class="product-icon">🍖</span>
+      <div class="product-name">Beef Biltong</div>
+      <div class="product-desc">Original or Salt &amp; Pepper</div>
+    </div>
+    <div class="product">
+      <span class="product-icon">🌶️</span>
+      <div class="product-name">Dry Wors</div>
+      <div class="product-desc">Traditional spiced</div>
+    </div>
+    <div class="product">
+      <span class="product-icon">🥓</span>
+      <div class="product-name">Short Rib</div>
+      <div class="product-desc">Spicey, per pack</div>
+    </div>
+    <div class="product">
+      <span class="product-icon">🌶️</span>
+      <div class="product-name">Chilli Salt</div>
+      <div class="product-desc">Per bottle</div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<div class="how">
+  <section>
+    <h2>How It <span>Works</span></h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Message us on WhatsApp</h3>
+        <p>Tap the button to start a chat — our system guides you through the menu instantly.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Place your order</h3>
+        <p>Select products, quantities, and choose collection or delivery within 5km of our workshop.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Pay &amp; receive</h3>
+        <p>Get your invoice, pay via EFT, and we'll confirm your order shortly after.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- CONTACT -->
+<section>
+  <h2>Get In <span>Touch</span></h2>
+  <div class="contact-grid">
+    <div class="contact-card">
+      <div class="icon">📞</div>
+      <div class="label">Call us</div>
+      <a href="tel:+27826179993" class="value">+27 82 617 9993<br><small style="color:var(--muted);font-weight:400">(Ross)</small></a>
+    </div>
+    <div class="contact-card">
+      <div class="icon">📧</div>
+      <div class="label">Email</div>
+      <a href="mailto:bronnie@infin.co.za" class="value">bronnie@infin.co.za</a>
+    </div>
+    <div class="contact-card">
+      <div class="icon">📍</div>
+      <div class="label">Workshop</div>
+      <div class="value">14 Loftus Street<br><small style="color:var(--muted);font-weight:400">Murrayfield Park, Mkondeni</small></div>
+    </div>
+    <div class="contact-card">
+      <div class="icon">🕐</div>
+      <div class="label">Hours</div>
+      <div class="value">Mon–Fri<br><small style="color:var(--muted);font-weight:400">8:30am – 5pm</small></div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div>© 2026 Ojaa Meats &amp; More · C. J Manufacturing CC</div>
+  <div style="margin-top:6px;font-size:0.8rem;opacity:0.7">VAT Reg No: 4200130013</div>
+  <div class="footer-links">
+    <a href="privacy.html">Privacy Policy</a>
+  </div>
+</footer>
+
+</body>
+</html>
