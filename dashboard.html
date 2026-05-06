@@ -69,6 +69,7 @@
   .section-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
   @media (max-width: 900px) { .section-grid { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; animation: fadeUp 0.5s ease both; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .card-full { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; animation: fadeUp 0.5s ease both; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; }
   .card-title { font-family: 'Bebas Neue', sans-serif; font-size: 1.2rem; letter-spacing: 0.08em; color: var(--text); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
   .card-title::before { content: ''; display: block; width: 4px; height: 18px; background: var(--green); border-radius: 2px; flex-shrink: 0; }
   .bar-list { display: flex; flex-direction: column; gap: 12px; }
@@ -80,12 +81,14 @@
   .bar-fill { height: 100%; background: linear-gradient(90deg, #1a7a4a, #34c478); border-radius: 4px; transition: width 0.8s cubic-bezier(0.16,1,0.3,1); }
   .data-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
   .data-table th { text-align: left; padding: 8px 12px; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); }
-  .data-table td { padding: 10px 12px; border-bottom: 1px solid rgba(42,61,42,0.5); }
+  .data-table td { padding: 10px 12px; border-bottom: 1px solid rgba(42,61,42,0.5); vertical-align: top; }
   .data-table tr:last-child td { border-bottom: none; }
   .data-table tr:hover td { background: var(--card2); }
   .pill { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.05em; }
   .pill-yes { background: rgba(26,122,74,0.12); color: var(--green); }
   .pill-no  { background: rgba(224,92,92,0.2); color: var(--red); }
+  .pill-delivery { background: rgba(26,122,74,0.08); color: var(--green); }
+  .pill-workshop { background: rgba(217,119,6,0.12); color: var(--amber); }
   .donut-wrap { display: flex; align-items: center; gap: 24px; }
   .donut-legend { display: flex; flex-direction: column; gap: 10px; flex: 1; }
   .legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; }
@@ -95,6 +98,10 @@
   .month-row td:first-child { font-family: 'DM Mono', monospace; color: var(--muted); font-size: 0.75rem; }
   .amount { font-family: 'DM Mono', monospace; color: var(--green); font-weight: 600; }
   .no-data { color: var(--muted); font-size: 0.82rem; text-align: center; padding: 24px 0; }
+  .items-cell { color: var(--text); font-size: 0.78rem; line-height: 1.5; max-width: 260px; }
+  .order-num { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: var(--muted); }
+  .order-date { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: var(--muted); }
+  .customer-name { font-weight: 500; font-size: 0.82rem; }
 </style>
 </head>
 <body>
@@ -144,6 +151,11 @@ function showError(msg) {
 
 function fmtZAR(n) { return 'R' + Number(n).toLocaleString('en-ZA', {minimumFractionDigits:0, maximumFractionDigits:0}); }
 function fmtNum(n) { return Number(n).toLocaleString('en-ZA'); }
+function fmtDate(ts) {
+  const d = new Date(ts);
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString('en-ZA', { day:'2-digit', month:'short' }) + ' ' + d.toLocaleTimeString('en-ZA', { hour:'2-digit', minute:'2-digit' });
+}
 
 function renderDashboard(orders, lineItems) {
   const totalOrders   = orders.length;
@@ -191,7 +203,17 @@ function renderDashboard(orders, lineItems) {
     monthlyRevenue[key].orders++;
   });
   const monthData = Object.keys(monthlyRevenue).sort().map(k => ({ month: k, ...monthlyRevenue[k] }));
-  const recentOrders = [...orders].reverse().slice(0, 8);
+
+  // Build items lookup by order number from lineItems
+  const itemsByOrder = {};
+  lineItems.forEach(li => {
+    const num = li.Order_Num || '';
+    if (!num) return;
+    if (!itemsByOrder[num]) itemsByOrder[num] = [];
+    itemsByOrder[num].push(`${li.Product} x${li.Qty}`);
+  });
+
+  const recentOrders = [...orders].reverse().slice(0, 10);
 
   const dash = document.getElementById('dashboard');
   dash.style.display = 'block';
@@ -216,8 +238,9 @@ function renderDashboard(orders, lineItems) {
     </div>
     <div class="section-grid">
       <div class="card"><div class="card-title">Top Customers</div>${customerTable(customerList)}</div>
-      <div class="card"><div class="card-title">Recent Orders</div>${recentOrdersTable(recentOrders)}</div>
-    </div>`;
+      <div class="card"><div class="card-title">Monthly Revenue</div>${monthData.length ? monthTable(monthData) : '<p class="no-data">No data yet</p>'}</div>
+    </div>
+    <div class="card-full"><div class="card-title">Recent Orders</div>${recentOrdersTable(recentOrders, itemsByOrder)}</div>`;
 
   setTimeout(() => { document.querySelectorAll('.bar-fill').forEach(el => { el.style.width = el.dataset.width + '%'; }); }, 50);
 }
@@ -276,21 +299,50 @@ function customerTable(list) {
   <tbody>${list.map(c => `<tr><td>${c.name||'Unknown'}</td><td>${c.orders}</td><td class="amount">${fmtZAR(c.spend)}</td></tr>`).join('')}</tbody></table>`;
 }
 
-function recentOrdersTable(list) {
+function recentOrdersTable(list, itemsByOrder) {
   if (!list.length) return '<p class="no-data">No data yet</p>';
-  return `<table class="data-table"><thead><tr><th>Order</th><th>Total</th><th>Paid</th></tr></thead>
-  <tbody>${list.map(o => `<tr><td style="font-family:'DM Mono',monospace;font-size:0.75rem">${o.Order_num||''}</td><td class="amount">${fmtZAR(o.Total)}</td><td><span class="pill ${(o.Paid||'').toUpperCase()==='YES'?'pill-yes':'pill-no'}">${o.Paid||'NO'}</span></td></tr>`).join('')}</tbody></table>`;
+  return `<table class="data-table">
+    <thead>
+      <tr>
+        <th>Order</th>
+        <th>Date</th>
+        <th>Customer</th>
+        <th>Items</th>
+        <th>Delivery</th>
+        <th>Total</th>
+        <th>Paid</th>
+        <th>Delivered</th>
+      </tr>
+    </thead>
+    <tbody>${list.map(o => {
+      const orderNum = o.Order_num || '';
+      const items = (itemsByOrder[orderNum] || []).join(', ') || (o.Items || '—');
+      const delivType = (o.Delivery_Type || '').trim();
+      const delivPill = delivType
+        ? `<span class="pill ${delivType.toLowerCase().includes('delivery') ? 'pill-delivery' : 'pill-workshop'}">${delivType}</span>`
+        : '—';
+      const paidPill = `<span class="pill ${(o.Paid||'').toUpperCase()==='YES'?'pill-yes':'pill-no'}">${o.Paid||'NO'}</span>`;
+      const deliveredPill = `<span class="pill ${(o.Delivered||'').toUpperCase()==='YES'?'pill-yes':'pill-no'}">${o.Delivered||'NO'}</span>`;
+      return `<tr>
+        <td class="order-num">${orderNum}</td>
+        <td class="order-date">${fmtDate(o.Timestamp)}</td>
+        <td class="customer-name">${o.Name||'—'}</td>
+        <td class="items-cell">${items}</td>
+        <td>${delivPill}</td>
+        <td class="amount">${fmtZAR(o.Total)}</td>
+        <td>${paidPill}</td>
+        <td>${deliveredPill}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>`;
 }
 
-// Auto-load on page open
 loadData();
 
-// Auto-refresh every 5 minutes
 const REFRESH_INTERVAL = 5 * 60 * 1000;
 let countdown = REFRESH_INTERVAL / 1000;
-let refreshTimer = setInterval(loadData, REFRESH_INTERVAL);
-
-// Countdown display
+setInterval(loadData, REFRESH_INTERVAL);
 setInterval(() => {
   countdown--;
   if (countdown <= 0) countdown = REFRESH_INTERVAL / 1000;
@@ -305,4 +357,3 @@ setInterval(() => {
 </script>
 </body>
 </html>
-<!-- Auto-refresh patch - append before </script> -->
