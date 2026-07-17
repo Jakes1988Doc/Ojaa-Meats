@@ -718,10 +718,12 @@ async function buildMenuSections(cart = {}) {
   const stock = await getStockOnHand();
   const hasCart = Object.keys(cart).length > 0;
 
-  // ── KEY FIX: cap at 9 when cart has items (leaves 1 slot for Finalise row)
+  // ── KEY FIX: cap at 8 when cart has items (leaves 1 slot for Finalise row,
+  //            with 1 extra buffer for safety against WhatsApp's 10-row limit)
   //            cap at 10 when cart is empty
   //            also filter out any items with blank names
-  const maxItems = hasCart ? 9 : 10;
+  const maxItems = hasCart ? 8 : 10;
+  console.log(`buildMenuSections: hasCart=${hasCart}, maxItems=${maxItems}`);
   const rows = menu
     .filter(m => m.name && m.name.trim() !== '')
     .slice(0, maxItems)
