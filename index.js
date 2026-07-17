@@ -217,12 +217,8 @@ async function uploadInvoiceToCloudinary(pdfBuffer, orderNum) {
     const timestamp = Math.floor(Date.now() / 1000);
     const publicId  = `invoices/${orderNum}.pdf`;
     const crypto    = require('crypto');
-    // Params must be alphabetical for Cloudinary signature
     const sigString = `access_mode=public&public_id=${publicId}&timestamp=${timestamp}&type=upload${apiSecret}`;
-    const signature = crypto
-      .createHash('sha1')
-      .update(sigString)
-      .digest('hex');
+    const signature = crypto.createHash('sha1').update(sigString).digest('hex');
 
     const formData = new (require('form-data'))();
     formData.append('file', dataUri);
@@ -249,21 +245,13 @@ async function uploadInvoiceToCloudinary(pdfBuffer, orderNum) {
 }
 
 async function getOrCreateFolder(drive, name, parentId) {
-  // Check if folder already exists
   const res = await drive.files.list({
     q: `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`,
     fields: 'files(id, name)',
   });
-  if (res.data.files.length > 0) {
-    return res.data.files[0].id;
-  }
-  // Create it
+  if (res.data.files.length > 0) return res.data.files[0].id;
   const folder = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: [parentId],
-    },
+    requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] },
     fields: 'id',
   });
   return folder.data.id;
@@ -274,26 +262,16 @@ async function saveInvoiceToDrive(pdfBuffer, orderNum) {
     const drive = await getDriveClient();
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-    // Get or create month folder
     const monthFolderId = await getOrCreateFolder(drive, month, DRIVE_FOLDER_ID);
-
     const { Readable } = require('stream');
     const stream = new Readable();
     stream.push(pdfBuffer);
     stream.push(null);
     await drive.files.create({
-      requestBody: {
-        name: `Invoice-${orderNum}.pdf`,
-        parents: [monthFolderId],
-        mimeType: 'application/pdf',
-      },
-      media: {
-        mimeType: 'application/pdf',
-        body: stream,
-      },
+      requestBody: { name: `Invoice-${orderNum}.pdf`, parents: [monthFolderId], mimeType: 'application/pdf' },
+      media: { mimeType: 'application/pdf', body: stream },
     });
-    console.log(`Invoice ${orderNum} saved to Drive under ${day}`);
+    console.log(`Invoice ${orderNum} saved to Drive`);
   } catch (err) {
     console.error('Drive save error:', err.message);
   }
@@ -301,48 +279,26 @@ async function saveInvoiceToDrive(pdfBuffer, orderNum) {
 
 async function uploadAndSendInvoice(phone, pdfBuffer, orderNum) {
   try {
-    // Upload PDF as media to WhatsApp
     const FormData = require('form-data');
     const form = new FormData();
-    form.append('file', pdfBuffer, {
-      filename: `Invoice-${orderNum}.pdf`,
-      contentType: 'application/pdf',
-    });
+    form.append('file', pdfBuffer, { filename: `Invoice-${orderNum}.pdf`, contentType: 'application/pdf' });
     form.append('messaging_product', 'whatsapp');
     form.append('type', 'application/pdf');
 
     const uploadRes = await axios.post(
       `https://graph.facebook.com/v19.0/${CONFIG.PHONE_NUMBER_ID}/media`,
       form,
-      {
-        headers: {
-          Authorization: `Bearer ${CONFIG.WA_TOKEN}`,
-          ...form.getHeaders(),
-        },
-      }
+      { headers: { Authorization: `Bearer ${CONFIG.WA_TOKEN}`, ...form.getHeaders() } }
     );
 
     const mediaId = uploadRes.data.id;
-
-    // Send document message
     await axios.post(
       `https://graph.facebook.com/v19.0/${CONFIG.PHONE_NUMBER_ID}/messages`,
       {
-        messaging_product: 'whatsapp',
-        to: phone,
-        type: 'document',
-        document: {
-          id: mediaId,
-          filename: `Invoice-${orderNum}.pdf`,
-          caption: `Your invoice for order ${orderNum}. Please use the order number as your payment reference.`,
-        },
+        messaging_product: 'whatsapp', to: phone, type: 'document',
+        document: { id: mediaId, filename: `Invoice-${orderNum}.pdf`, caption: `Your invoice for order ${orderNum}. Please use the order number as your payment reference.` },
       },
-      {
-        headers: {
-          Authorization: `Bearer ${CONFIG.WA_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-      }
+      { headers: { Authorization: `Bearer ${CONFIG.WA_TOKEN}`, 'Content-Type': 'application/json' } }
     );
     console.log(`Invoice sent to ${phone} for order ${orderNum}`);
     return true;
@@ -359,28 +315,25 @@ const MENU_CACHE_TTL = 10 * 60 * 1000;
 
 async function getMenu() {
   const now = Date.now();
-  if (menuCache.length > 0 && (now - menuCacheTime) < MENU_CACHE_TTL) {
-    return menuCache;
-  }
+  if (menuCache.length > 0 && (now - menuCacheTime) < MENU_CACHE_TTL) return menuCache;
   try {
     const sheets = await getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Menu',
-    });
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Menu' });
     const rows = res.data.values || [];
     if (rows.length > 1) {
-      const headers = rows[0];
+      const headers  = rows[0];
       const nameIdx  = headers.indexOf('Name');
       const unitIdx  = headers.indexOf('Unit');
       const priceIdx = headers.findIndex(h => h.includes('Price'));
-      menuCache = rows.slice(1).map((row, index) => ({
-        id: index,
-        letter: String.fromCharCode(65 + index),
-        name: row[nameIdx] || '',
-        unit: row[unitIdx] || '',
-        price: parseFloat(row[priceIdx]) || 0,
-      }));
+      menuCache = rows.slice(1)
+        .filter(row => row[nameIdx] && row[nameIdx].trim() !== '') // ← filter empty rows
+        .map((row, index) => ({
+          id: index,
+          letter: String.fromCharCode(65 + index),
+          name: row[nameIdx] || '',
+          unit: row[unitIdx] || '',
+          price: parseFloat(row[priceIdx]) || 0,
+        }));
       menuCacheTime = now;
     }
   } catch (err) {
@@ -392,13 +345,11 @@ async function getMenu() {
 // ─── STOCK ON HAND ───────────────────────────────────────────
 let stockCache = {};
 let stockCacheTime = 0;
-const STOCK_CACHE_TTL = 60 * 1000; // 1 min cache
+const STOCK_CACHE_TTL = 60 * 1000;
 
 async function getStockOnHand() {
   const now = Date.now();
-  if (Object.keys(stockCache).length > 0 && (now - stockCacheTime) < STOCK_CACHE_TTL) {
-    return stockCache;
-  }
+  if (Object.keys(stockCache).length > 0 && (now - stockCacheTime) < STOCK_CACHE_TTL) return stockCache;
   try {
     const sheets = await getSheetsClient();
     const [stockRes, lineItemsRes] = await Promise.all([
@@ -409,21 +360,15 @@ async function getStockOnHand() {
     const stockRows = stockRes.data.values || [];
     if (stockRows.length < 4) { stockCache = {}; return stockCache; }
 
-    // Date is in cell C2 (row index 1, col index 2)
     const stockDateStr = stockRows[1]?.[2] || '';
-    // Parse DD/MM/YYYY
     let stockDate = null;
     if (stockDateStr) {
       const parts = stockDateStr.split('/');
-      if (parts.length === 3) {
-        stockDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-      }
+      if (parts.length === 3) stockDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
     }
 
-    // Read items + starting stock - rows from index 3 onwards (header in row 3, data row 4+)
-    // Headers row is at index 3: Item | Starting stock | Orders | Stock on hand
     const headerRow = stockRows[3] || [];
-    const itemIdx = headerRow.indexOf('Item');
+    const itemIdx  = headerRow.indexOf('Item');
     const startIdx = headerRow.indexOf('Starting stock');
     const items = {};
     for (let i = 4; i < stockRows.length; i++) {
@@ -433,11 +378,10 @@ async function getStockOnHand() {
       if (name) items[name] = { start, sold: 0 };
     }
 
-    // Sum line items since stock date
     const liRows = lineItemsRes.data.values || [];
     if (liRows.length > 1) {
       const liHeaders = liRows[0];
-      const tsIdx  = liHeaders.indexOf('Timestamp');
+      const tsIdx   = liHeaders.indexOf('Timestamp');
       const prodIdx = liHeaders.indexOf('Product');
       const qtyIdx  = liHeaders.indexOf('Qty');
       for (let i = 1; i < liRows.length; i++) {
@@ -450,11 +394,8 @@ async function getStockOnHand() {
       }
     }
 
-    // Build stock-on-hand map
     const result = {};
-    for (const [name, v] of Object.entries(items)) {
-      result[name] = v.start - v.sold;
-    }
+    for (const [name, v] of Object.entries(items)) result[name] = v.start - v.sold;
     stockCache = result;
     stockCacheTime = now;
   } catch (err) {
@@ -473,14 +414,11 @@ async function updateStockSheet() {
     const stockRows = stockRes.data.values || [];
     if (stockRows.length < 5) return;
 
-    // Parse stock date from C2 (DD/MM/YYYY)
     const stockDateStr = stockRows[1]?.[2] || '';
     let stockDate = null;
     if (stockDateStr) {
       const parts = stockDateStr.split('/');
-      if (parts.length === 3) {
-        stockDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-      }
+      if (parts.length === 3) stockDate = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
     }
 
     const headerRow = stockRows[3] || [];
@@ -489,7 +427,6 @@ async function updateStockSheet() {
     const ordersIdx = headerRow.indexOf('Orders');
     const sohIdx    = headerRow.indexOf('Stock on hand');
 
-    // Sum sold quantities by product since stock date
     const soldByProduct = {};
     const liRows = lineItemsRes.data.values || [];
     if (liRows.length > 1) {
@@ -507,7 +444,6 @@ async function updateStockSheet() {
       }
     }
 
-    // Build update batch
     const updates = [];
     for (let i = 4; i < stockRows.length; i++) {
       const row = stockRows[i];
@@ -516,8 +452,7 @@ async function updateStockSheet() {
       const start  = parseFloat(row[startIdx]) || 0;
       const sold   = soldByProduct[name] || 0;
       const onHand = start - sold;
-      // Update Orders column and Stock on hand column for this row
-      const rowNum = i + 1; // 1-indexed
+      const rowNum    = i + 1;
       const ordersCol = String.fromCharCode(65 + ordersIdx);
       const sohCol    = String.fromCharCode(65 + sohIdx);
       updates.push({ range: `Stock on hand!${ordersCol}${rowNum}`, values: [[sold]] });
@@ -530,8 +465,6 @@ async function updateStockSheet() {
         requestBody: { valueInputOption: 'USER_ENTERED', data: updates },
       });
     }
-
-    // Invalidate stock cache so next read is fresh
     stockCacheTime = 0;
   } catch (err) {
     console.error('Stock sheet update error:', err.message);
@@ -547,31 +480,23 @@ function getSession(phone) {
   return sessions[phone];
 }
 
-// ─── SHEETDB ─────────────────────────────────────────────────
 // ─── BOT STATUS CHECK ────────────────────────────────────────
-// Reads Control sheet C5 — if "Off" bot sends away message
 let botStatusCache = 'On';
 let botStatusCacheTime = 0;
-const STATUS_CACHE_TTL = 60 * 1000; // check every 60 seconds
+const STATUS_CACHE_TTL = 60 * 1000;
 
 async function getBotStatus() {
   const now = Date.now();
   if (now - botStatusCacheTime < STATUS_CACHE_TTL) return botStatusCache;
   try {
     const sheets = await getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: 'Control',
-    });
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Control' });
     const rows = res.data.values || [];
     if (rows.length > 0) {
       let found = null;
       for (const row of rows) {
         for (const val of row) {
-          if (val === 'On' || val === 'Off') {
-            found = val;
-            break;
-          }
+          if (val === 'On' || val === 'Off') { found = val; break; }
         }
         if (found) break;
       }
@@ -580,8 +505,6 @@ async function getBotStatus() {
         botStatusCache = found;
         botStatusCacheTime = now;
         console.log(`Bot status: ${botStatusCache}`);
-
-        // If bot just switched back On — reset any incomplete sessions
         if (previous === 'Off' && botStatusCache === 'On') {
           console.log('Bot switched On — resetting incomplete sessions');
           const incomplete = ['ordering', 'confirm', 'payment'];
@@ -604,10 +527,7 @@ async function getBotStatus() {
 async function sheetsGet(sheetName, searchCol, searchVal) {
   try {
     const sheets = await getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: sheetName,
-    });
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: sheetName });
     const rows = res.data.values || [];
     if (rows.length === 0) return [];
     const headers = rows[0];
@@ -615,11 +535,7 @@ async function sheetsGet(sheetName, searchCol, searchVal) {
     if (colIndex === -1) return [];
     return rows.slice(1)
       .filter(row => row[colIndex] === searchVal)
-      .map(row => {
-        const obj = {};
-        headers.forEach((h, i) => obj[h] = row[i] || '');
-        return obj;
-      });
+      .map(row => { const obj = {}; headers.forEach((h, i) => obj[h] = row[i] || ''); return obj; });
   } catch (err) {
     console.error('Sheets GET error:', err.message);
     return [];
@@ -629,18 +545,12 @@ async function sheetsGet(sheetName, searchCol, searchVal) {
 async function sheetsPost(sheetName, rowData) {
   try {
     const sheets = await getSheetsClient();
-    // Get headers first
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${sheetName}!1:1`,
-    });
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!1:1` });
     const headers = res.data.values?.[0] || Object.keys(rowData);
     const row = headers.map(h => rowData[h] !== undefined ? String(rowData[h]) : '');
     await sheets.spreadsheets.values.append({
-      spreadsheetId: SPREADSHEET_ID,
-      range: sheetName,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [row] },
+      spreadsheetId: SPREADSHEET_ID, range: sheetName,
+      valueInputOption: 'USER_ENTERED', requestBody: { values: [row] },
     });
     return true;
   } catch (err) {
@@ -652,10 +562,7 @@ async function sheetsPost(sheetName, rowData) {
 async function sheetsUpdate(sheetName, searchCol, searchVal, rowData) {
   try {
     const sheets = await getSheetsClient();
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: sheetName,
-    });
+    const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: sheetName });
     const rows = res.data.values || [];
     if (rows.length === 0) return null;
     const headers = rows[0];
@@ -665,10 +572,8 @@ async function sheetsUpdate(sheetName, searchCol, searchVal, rowData) {
     if (rowIndex === -1) return null;
     const updatedRow = headers.map((h, i) => rowData[h] !== undefined ? String(rowData[h]) : (rows[rowIndex][i] || ''));
     await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: `${sheetName}!A${rowIndex + 1}`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody: { values: [updatedRow] },
+      spreadsheetId: SPREADSHEET_ID, range: `${sheetName}!A${rowIndex + 1}`,
+      valueInputOption: 'USER_ENTERED', requestBody: { values: [updatedRow] },
     });
     return true;
   } catch (err) {
@@ -690,37 +595,17 @@ async function updateSessionInSheets(phone, session) {
 async function logOrderToSheets(phone, orderNum, cart, total, customerName, deliveryType = '', deliveryAddress = '') {
   const items = Object.values(cart).map(i => `${i.name} x${i.qty}`).join(', ');
   const timestamp = new Date().toISOString();
-
-  // Log summary to Orders sheet
   await sheetsPost('Orders', {
-    Timestamp: timestamp,
-    Order_num: orderNum,
-    Phone: phone,
-    Name: customerName || '',
-    Items: items,
-    VAT: (total - total / 1.15).toFixed(2),
-    Total: total,
-    Delivery_Type: deliveryType,
-    Delivery_Address: deliveryAddress,
-    Paid: 'NO',
-    POP_Confirmed: 'NO',
-    Delivered: 'NO',
-    Invoice_URL: '',
+    Timestamp: timestamp, Order_num: orderNum, Phone: phone, Name: customerName || '',
+    Items: items, VAT: (total - total / 1.15).toFixed(2), Total: total,
+    Delivery_Type: deliveryType, Delivery_Address: deliveryAddress,
+    Paid: 'NO', POP_Confirmed: 'NO', Delivered: 'NO', Invoice_URL: '',
   });
-
-  // Log one row per product to Line_Items sheet
   for (const item of Object.values(cart)) {
     const lineTotal = item.price * item.qty;
     await sheetsPost('Line items', {
-      Timestamp: timestamp,
-      Order_Num: orderNum,
-      Phone: phone,
-      Name: customerName || '',
-      Product: item.name,
-      Unit: item.unit,
-      Qty: item.qty,
-      Unit_Price: item.price,
-      Line_Total: lineTotal,
+      Timestamp: timestamp, Order_Num: orderNum, Phone: phone, Name: customerName || '',
+      Product: item.name, Unit: item.unit, Qty: item.qty, Unit_Price: item.price, Line_Total: lineTotal,
     });
   }
 }
@@ -818,14 +703,7 @@ async function sendList(to, body, buttonText, sections) {
       `https://graph.facebook.com/v19.0/${CONFIG.PHONE_NUMBER_ID}/messages`,
       {
         messaging_product: 'whatsapp', to, type: 'interactive',
-        interactive: {
-          type: 'list',
-          body: { text: body },
-          action: {
-            button: buttonText,
-            sections,
-          },
-        },
+        interactive: { type: 'list', body: { text: body }, action: { button: buttonText, sections } },
       },
       { headers: { Authorization: `Bearer ${CONFIG.WA_TOKEN}`, 'Content-Type': 'application/json' } }
     );
@@ -838,28 +716,33 @@ async function sendList(to, body, buttonText, sections) {
 async function buildMenuSections(cart = {}) {
   const menu = await getMenu();
   const stock = await getStockOnHand();
-  const rows = menu.map(m => {
-    const onHand = stock[m.name];
-    const isOutOfStock = onHand !== undefined && onHand < 1;
-    let title = m.name.length > 24 ? m.name.substring(0, 24) : m.name;
-    if (isOutOfStock) {
-      title = `(OOS) ${m.name}`.substring(0, 24);
-    }
-    return {
-      id: `item_${m.letter}`,
-      title,
-      description: isOutOfStock ? 'Out of stock' : `${m.unit} — R${m.price}`,
-    };
-  });
+  const hasCart = Object.keys(cart).length > 0;
+
+  // ── KEY FIX: cap at 9 when cart has items (leaves 1 slot for Finalise row)
+  //            cap at 10 when cart is empty
+  //            also filter out any items with blank names
+  const maxItems = hasCart ? 9 : 10;
+  const rows = menu
+    .filter(m => m.name && m.name.trim() !== '')
+    .slice(0, maxItems)
+    .map(m => {
+      const onHand = stock[m.name];
+      const isOutOfStock = onHand !== undefined && onHand < 1;
+      let title = m.name.length > 24 ? m.name.substring(0, 24) : m.name;
+      if (isOutOfStock) title = `(OOS) ${m.name}`.substring(0, 24);
+      return {
+        id: `item_${m.letter}`,
+        title,
+        description: isOutOfStock ? 'Out of stock' : `${m.unit} — R${m.price}`,
+      };
+    });
+
   const sections = [{ title: 'Our Products', rows }];
-  if (Object.keys(cart).length > 0) {
+
+  if (hasCart) {
     sections.push({
       title: '─────────────',
-      rows: [{
-        id: 'finalise_order',
-        title: '✅ Finalise order',
-        description: 'Review and confirm your current order',
-      }]
+      rows: [{ id: 'finalise_order', title: '✅ Finalise order', description: 'Review and confirm your current order' }],
     });
   }
   return sections;
@@ -876,50 +759,35 @@ async function sendMenuList(to, cart = {}, body = null) {
 }
 
 async function sendQuantityButtons(to, itemName) {
-  await sendList(
-    to,
-    `How many *${itemName}* would you like?`,
-    'Select quantity',
-    [{
-      title: 'Quantity',
-      rows: [
-        { id: 'qty_1', title: '1' },
-        { id: 'qty_2', title: '2' },
-        { id: 'qty_3', title: '3' },
-        { id: 'qty_4', title: '4' },
-        { id: 'qty_5', title: '5' },
-      ],
-    }]
-  );
+  await sendList(to, `How many *${itemName}* would you like?`, 'Select quantity', [{
+    title: 'Quantity',
+    rows: [
+      { id: 'qty_1', title: '1' },
+      { id: 'qty_2', title: '2' },
+      { id: 'qty_3', title: '3' },
+      { id: 'qty_4', title: '4' },
+      { id: 'qty_5', title: '5' },
+    ],
+  }]);
 }
 
 async function sendMoreQuantityButtons(to, itemName) {
   await sendButtons(to, `How many *${itemName}* would you like?`, ['4', '5', '10']);
 }
+
 async function sendInvoiceAndSaveToDrive(phone, orderNum, cart, customerName) {
-  const invoiceItems = Object.values(cart).map(item => ({
-    name: item.name, unit: item.unit, price: item.price, qty: item.qty
-  }));
-  const orderData = {
-    orderNum,
-    date: formatDate(new Date()),
-    customerName: customerName || 'Valued Customer',
-    phone: `+${phone}`,
-    items: invoiceItems,
-  };
+  const invoiceItems = Object.values(cart).map(item => ({ name: item.name, unit: item.unit, price: item.price, qty: item.qty }));
+  const orderData = { orderNum, date: formatDate(new Date()), customerName: customerName || 'Valued Customer', phone: `+${phone}`, items: invoiceItems };
   const pdfBuffer = await generateInvoicePDF(orderData);
   if (pdfBuffer) {
     await uploadAndSendInvoice(phone, pdfBuffer, orderNum);
     await saveInvoiceToDrive(pdfBuffer, orderNum);
     const invoiceUrl = await uploadInvoiceToCloudinary(pdfBuffer, orderNum);
-    if (invoiceUrl) {
-      await sheetsUpdate('Orders', 'Order_num', orderNum, { Invoice_URL: invoiceUrl });
-    }
+    if (invoiceUrl) await sheetsUpdate('Orders', 'Order_num', orderNum, { Invoice_URL: invoiceUrl });
   }
 }
 
 async function handleMessage(phone, text, customerName, interactiveId = '') {
-  // Check if bot is switched off in Control sheet
   const status = await getBotStatus();
   if (status === 'Off') {
     await sendMessage(phone, `Hi there! 👋 Thanks for messaging *${CONFIG.BUSINESS_NAME}*!\n\nWe are currently away making more delicious meat for you! 🥩🔪\n\nWe will be back shortly — please message us again soon and we will get your order sorted. We appreciate your patience! 😊`);
@@ -935,7 +803,6 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
     session.cart  = {};
   }
 
-  // Handle Contact us and Delivery info from anywhere in the flow
   if (interactiveId === 'btn_contact' || upper === 'CONTACT US') {
     await sendMessage(phone, `You can reach us at:\n\n📞 *+27 82 617 9993 (Ross)*\n\n_or_\n\n📧 *bronnie@infin.co.za*\n\nWe are available Mon-Fri, 8:30am-5pm.`);
     return;
@@ -969,7 +836,6 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       return;
     }
 
-    // Customer tapped Finalise order from the list
     if (interactiveId === 'finalise_order' || ['CONFIRM ORDER', 'CONFIRM', 'FINALISE ORDER', 'FINALISE', '✅ FINALISE ORDER'].includes(upper)) {
       if (Object.keys(session.cart).length === 0) {
         await sendMessage(phone, 'Your cart is empty. Please select at least one item first.');
@@ -983,7 +849,6 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       return;
     }
 
-    // Cancel order
     if (['CANCEL ORDER', 'CANCEL'].includes(upper)) {
       session.cart = {};
       session.pendingItem = null;
@@ -993,7 +858,6 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       return;
     }
 
-    // Customer selected a product from the list
     const menu = await getMenu();
     const selectedByList = menu.find(m => interactiveId === `item_${m.letter}`);
     if (selectedByList) {
@@ -1010,7 +874,6 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       return;
     }
 
-    // Handle response to stock-cap offer
     if (session.pendingStockCap) {
       const cap = session.pendingStockCap;
       if (['YES', 'YES, ORDER ' + cap, 'ORDER ' + cap].includes(upper)) {
@@ -1020,12 +883,7 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
         session.pendingStockCap = null;
         await updateSessionInSheets(phone, session);
         const { text: cartSummaryText } = cartSummary(session.cart);
-        await sendList(
-          phone,
-          `✅ *${item.name} x${cap}* added to your order.\n\n${cartSummaryText}\n\nTap *View Menu & Order* to add more items or *Finalise Order* when done 👇`,
-          '🛒 View Menu & Order',
-          await buildMenuSections(session.cart)
-        );
+        await sendList(phone, `✅ *${item.name} x${cap}* added to your order.\n\n${cartSummaryText}\n\nTap *View Menu & Order* to add more items or *Finalise Order* when done 👇`, '🛒 View Menu & Order', await buildMenuSections(session.cart));
         await sendButtons(phone, 'Ready to checkout?', ['✅ Finalise Order', 'Cancel']);
         return;
       }
@@ -1039,11 +897,9 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       }
     }
 
-    // Customer selected quantity via buttons (1, 2, 3, 4, 5)
     const qty = parseInt(msg);
     if (!isNaN(qty) && qty > 0 && qty <= 5 && session.pendingItem) {
       const item = session.pendingItem;
-      // Check stock
       const stock = await getStockOnHand();
       const onHand = stock[item.name];
       if (onHand !== undefined && qty > onHand) {
@@ -1054,31 +910,20 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
           await sendMenuList(phone, session.cart);
           return;
         }
-        // Offer to cap qty at available stock
         session.pendingStockCap = onHand;
         await updateSessionInSheets(phone, session);
-        await sendButtons(
-          phone,
-          `Sorry, only *${onHand}* x ${item.name} available. Would you like to order ${onHand} instead?`,
-          [`Yes, order ${onHand}`, 'No, cancel']
-        );
+        await sendButtons(phone, `Sorry, only *${onHand}* x ${item.name} available. Would you like to order ${onHand} instead?`, [`Yes, order ${onHand}`, 'No, cancel']);
         return;
       }
       session.cart[item.letter] = { ...item, qty };
       session.pendingItem = null;
       await updateSessionInSheets(phone, session);
       const { text: cartSummaryText } = cartSummary(session.cart);
-      await sendList(
-        phone,
-        `✅ *${item.name} x${qty}* added to your order.\n\n${cartSummaryText}\n\nTap *View Menu & Order* to add more items or *Finalise Order* when done 👇`,
-        '🛒 View Menu & Order',
-        await buildMenuSections(session.cart)
-      );
+      await sendList(phone, `✅ *${item.name} x${qty}* added to your order.\n\n${cartSummaryText}\n\nTap *View Menu & Order* to add more items or *Finalise Order* when done 👇`, '🛒 View Menu & Order', await buildMenuSections(session.cart));
       await sendButtons(phone, 'Ready to checkout?', ['✅ Finalise Order', 'Cancel']);
       return;
     }
 
-    // Fallback
     await sendMenuList(phone, session.cart);
     return;
   }
@@ -1091,10 +936,7 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       session.state = 'delivery';
       await updateSessionInSheets(phone, session);
       await sendMessage(phone, `✅ Order *${orderNum}* confirmed!\n\n${summary}`);
-      await sendButtons(phone, 'How would you like to receive your order?\n\n🚚 *Delivery available within 5km of our workshop only.*', [
-        '🏭 Workshop',
-        '🚚 Delivery',
-      ]);
+      await sendButtons(phone, 'How would you like to receive your order?\n\n🚚 *Delivery available within 5km of our workshop only.*', ['🏭 Workshop', '🚚 Delivery']);
       return;
     }
     if (['ADD MORE ITEMS', 'ADD', 'ADD ANOTHER ITEM', 'ADD ANOTHER'].includes(upper)) {
@@ -1120,7 +962,6 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
   if (session.state === 'delivery') {
     const { text: summary, total } = cartSummary(session.cart);
     const orderNum = session.orderNum;
-
     if (['🏭 WORKSHOP', 'WORKSHOP COLLECTION', 'WORKSHOP'].includes(upper) || interactiveId === 'btn_0') {
       session.deliveryType = 'Collection - Workshop';
       session.deliveryAddress = '';
@@ -1132,7 +973,6 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       await sendInvoiceAndSaveToDrive(phone, orderNum, session.cart, customerName);
       return;
     }
-
     if (['🚚 DELIVERY', 'DELIVERY'].includes(upper) || interactiveId === 'btn_1') {
       session.deliveryType = 'Delivery';
       session.state = 'awaiting_address';
@@ -1140,12 +980,7 @@ async function handleMessage(phone, text, customerName, interactiveId = '') {
       await sendMessage(phone, `Please reply with your full delivery address 📍`);
       return;
     }
-
-    // Fallback - re-show options
-    await sendButtons(phone, 'How would you like to receive your order?\n\n🚚 *Delivery available within 5km of our workshop only.*', [
-      '🏭 Workshop',
-      '🚚 Delivery',
-    ]);
+    await sendButtons(phone, 'How would you like to receive your order?\n\n🚚 *Delivery available within 5km of our workshop only.*', ['🏭 Workshop', '🚚 Delivery']);
     return;
   }
 
@@ -1195,27 +1030,17 @@ app.get('/dashboard-data', async (req, res) => {
   try {
     res.setHeader('Access-Control-Allow-Origin', '*');
     const sheets = await getSheetsClient();
-
     const [ordersRes, lineItemsRes] = await Promise.all([
       sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Orders' }),
       sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: 'Line items' }),
     ]);
-
     const parseSheet = (res) => {
       const rows = res.data.values || [];
       if (rows.length < 2) return [];
       const headers = rows[0];
-      return rows.slice(1).map(row => {
-        const obj = {};
-        headers.forEach((h, i) => obj[h] = row[i] || '');
-        return obj;
-      });
+      return rows.slice(1).map(row => { const obj = {}; headers.forEach((h, i) => obj[h] = row[i] || ''); return obj; });
     };
-
-    res.json({
-      orders: parseSheet(ordersRes),
-      lineItems: parseSheet(lineItemsRes),
-    });
+    res.json({ orders: parseSheet(ordersRes), lineItems: parseSheet(lineItemsRes) });
   } catch (err) {
     console.error('Dashboard data error:', err.message);
     res.status(500).json({ error: err.message });
@@ -1240,54 +1065,20 @@ app.get('/register-number', async (req, res) => {
 app.get('/setup-sheets', async (req, res) => {
   try {
     const sheets = await getSheetsClient();
-
-    // Get sheet IDs
     const meta = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
     const ordersSheet = meta.data.sheets.find(s => s.properties.title === 'Orders');
     if (!ordersSheet) return res.status(404).json({ error: 'Orders sheet not found' });
     const sheetId = ordersSheet.properties.sheetId;
-
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId: SPREADSHEET_ID,
       requestBody: {
         requests: [
-          // Paid column (G = index 6) - rows 2 to 1000
-          {
-            setDataValidation: {
-              range: { sheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 6, endColumnIndex: 7 },
-              rule: {
-                condition: { type: 'ONE_OF_LIST', values: [{ userEnteredValue: 'YES' }, { userEnteredValue: 'NO' }] },
-                showCustomUi: true,
-                strict: false,
-              },
-            },
-          },
-          // POP Confirmed column (H = index 7) - rows 2 to 1000
-          {
-            setDataValidation: {
-              range: { sheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 7, endColumnIndex: 8 },
-              rule: {
-                condition: { type: 'ONE_OF_LIST', values: [{ userEnteredValue: 'YES' }, { userEnteredValue: 'NO' }] },
-                showCustomUi: true,
-                strict: false,
-              },
-            },
-          },
-          // Delivered column (I = index 8) - rows 2 to 1000
-          {
-            setDataValidation: {
-              range: { sheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 8, endColumnIndex: 9 },
-              rule: {
-                condition: { type: 'ONE_OF_LIST', values: [{ userEnteredValue: 'YES' }, { userEnteredValue: 'NO' }] },
-                showCustomUi: true,
-                strict: false,
-              },
-            },
-          },
+          { setDataValidation: { range: { sheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 6, endColumnIndex: 7 }, rule: { condition: { type: 'ONE_OF_LIST', values: [{ userEnteredValue: 'YES' }, { userEnteredValue: 'NO' }] }, showCustomUi: true, strict: false } } },
+          { setDataValidation: { range: { sheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 7, endColumnIndex: 8 }, rule: { condition: { type: 'ONE_OF_LIST', values: [{ userEnteredValue: 'YES' }, { userEnteredValue: 'NO' }] }, showCustomUi: true, strict: false } } },
+          { setDataValidation: { range: { sheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 8, endColumnIndex: 9 }, rule: { condition: { type: 'ONE_OF_LIST', values: [{ userEnteredValue: 'YES' }, { userEnteredValue: 'NO' }] }, showCustomUi: true, strict: false } } },
         ],
       },
     });
-
     res.json({ success: true, message: 'Dropdowns set for Paid and Delivered columns' });
   } catch (err) {
     console.error('Setup error:', err.message);
@@ -1315,7 +1106,6 @@ app.post('/webhook', async (req, res) => {
     const customerName = value?.contacts?.[0]?.profile?.name || '';
     let text = '';
     let interactiveId = '';
-
     if (message.type === 'text') {
       text = message.text?.body || '';
     } else if (message.type === 'interactive') {
@@ -1328,7 +1118,6 @@ app.post('/webhook', async (req, res) => {
         interactiveId = interactive.list_reply?.id || '';
       }
     }
-
     if (!text && !interactiveId) return;
     console.log(`[${new Date().toISOString()}] [${phone}] text="${text}" id="${interactiveId}"`);
     await handleMessage(phone, text, customerName, interactiveId);
@@ -1341,10 +1130,9 @@ app.get('/', (req, res) => res.json({ bot: CONFIG.BUSINESS_NAME, status: 'runnin
 
 getMenu().then(m => console.log(`Startup: ${m.length} menu items loaded`));
 
-// Background stock refresh every 2 minutes
 setInterval(async () => {
   try {
-    stockCacheTime = 0; // invalidate cache
+    stockCacheTime = 0;
     await getStockOnHand();
     console.log('Stock cache refreshed in background');
   } catch (err) {
