@@ -1242,10 +1242,17 @@ function showClosedBanner(){
   document.body.insertBefore(bar, document.body.firstChild);
 }
 function showMenuError(){
-  const g = document.querySelector('#productGrid');
-  if(g) g.innerHTML =
-    '<p style="color:var(--muted);padding:24px 0;line-height:1.5">'+
-    'We could not load today\'s stock. Please refresh, or call 082 617 9993 and we will take your order over the phone.</p>';
+  // Leave the catalogue visible — just warn that stock/prices could not be checked.
+  let el = document.querySelector('#stockNotice');
+  if(!el){
+    el = document.createElement('p');
+    el.id = 'stockNotice';
+    const grid = document.querySelector('#productGrid');
+    grid.parentNode.insertBefore(el, grid);
+  }
+  el.style.cssText = 'margin:0 0 14px;padding:11px 13px;border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--gold);text-align:center';
+  el.innerHTML = 'We could not check today\'s stock. Prices shown may be out of date &mdash; '+
+                 'please <a style="color:var(--gold)" href="tel:+27828082423">call 082 808 2423</a> to confirm.';
 }
 
 /* drop anything from a restored cart that is no longer sellable */
@@ -1662,7 +1669,33 @@ document.addEventListener('keydown',e=>{
   else if(document.querySelector('.panel.open')) closePanels();
 });
 
-loadLiveMenu().then(()=>{ renderProducts(); updateCartUI(); });
+/* Render straight away so the grid is never blank — Render's free tier can take
+   up to a minute to wake, and an empty page looks broken. Prices and stock are
+   corrected the moment the live menu arrives. */
+renderProducts();
+updateCartUI();
+showStockNotice(true);
+loadLiveMenu().then(()=>{
+  showStockNotice(false);
+  renderProducts();
+  updateCartUI();
+});
+
+function showStockNotice(on){
+  let el=document.querySelector('#stockNotice');
+  if(on){
+    if(!el){
+      el=document.createElement('p');
+      el.id='stockNotice';
+      el.style.cssText='margin:0 0 14px;font-size:13px;color:var(--muted);text-align:center';
+      el.textContent='Checking today\u2019s stock\u2026';
+      const grid=document.querySelector('#productGrid');
+      grid.parentNode.insertBefore(el, grid);
+    }
+  } else if(el){
+    el.remove();
+  }
+}
 
 /* Keep an open tab in step with the sheet: refresh prices and stock when the
    customer comes back to the page, and quietly every few minutes. */
