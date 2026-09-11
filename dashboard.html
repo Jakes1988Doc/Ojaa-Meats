@@ -299,6 +299,17 @@ function renderDashboard(orders, lineItems) {
   const dash = document.getElementById('dashboard');
   dash.style.display = 'block';
   dash.innerHTML = `
+    <div class="card-full">
+      <div class="card-title">
+        ${SHOW_OUTSTANDING_ONLY ? 'Outstanding Orders' : 'Recent Orders'}
+        <label class="outstanding-toggle">
+          <input type="checkbox" ${SHOW_OUTSTANDING_ONLY ? 'checked' : ''} onchange="toggleOutstanding(this)">
+          Not delivered only (${outstandingCount})
+        </label>
+      </div>
+      <p style="font-size:0.75rem;color:var(--muted);margin:-12px 0 14px">Tap a Paid or Delivered badge to change it — it writes straight back to the Google Sheet.</p>
+      ${recentOrdersTable(recentOrders, itemsByOrder)}
+    </div>
     <div class="kpi-grid">
       ${kpi('Total Orders', fmtNum(totalOrders), 'All time')}
       ${kpi('Total Revenue', fmtZAR(totalRevenue), 'Incl. unpaid')}
@@ -321,17 +332,7 @@ function renderDashboard(orders, lineItems) {
       <div class="card"><div class="card-title">Top Customers</div>${customerTable(customerList)}</div>
       <div class="card"><div class="card-title">Order Status</div>${statusSummary(orders)}</div>
     </div>
-    <div class="card-full">
-      <div class="card-title">
-        ${SHOW_OUTSTANDING_ONLY ? 'Outstanding Orders' : 'Recent Orders'}
-        <label class="outstanding-toggle">
-          <input type="checkbox" ${SHOW_OUTSTANDING_ONLY ? 'checked' : ''} onchange="toggleOutstanding(this)">
-          Not delivered only (${outstandingCount})
-        </label>
-      </div>
-      <p style="font-size:0.75rem;color:var(--muted);margin:-12px 0 14px">Tap a Paid or Delivered badge to change it — it writes straight back to the Google Sheet.</p>
-      ${recentOrdersTable(recentOrders, itemsByOrder)}
-    </div>`;
+`;
 
   setTimeout(() => { document.querySelectorAll('.bar-fill').forEach(el => { el.style.width = el.dataset.width + '%'; }); }, 50);
 }
@@ -407,7 +408,6 @@ function recentOrdersTable(list, itemsByOrder) {
   return `<table class="data-table">
     <thead>
       <tr>
-        <th>Order</th>
         <th>Date</th>
         <th>Customer</th>
         <th>Items</th>
@@ -434,7 +434,6 @@ function recentOrdersTable(list, itemsByOrder) {
         title="Click to mark ${isDelivered?'not delivered':'delivered'}"
         onclick="setFlag('${esc(orderNum)}','delivered',${!isDelivered},this)">${isDelivered?'YES':'NO'}</button>`;
       return `<tr>
-        <td class="order-num">${orderNum}</td>
         <td class="order-date">${fmtDate(o.Timestamp)}</td>
         <td class="customer-name">${o.Name||'—'}</td>
         <td class="items-cell">${items}</td>
