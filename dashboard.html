@@ -102,6 +102,21 @@
   .order-num { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: var(--muted); }
   .order-date { font-family: 'DM Mono', monospace; font-size: 0.72rem; color: var(--muted); }
   .customer-name { font-weight: 500; font-size: 0.82rem; }
+  /* clickable status pills */
+  .pill-btn { border: none; cursor: pointer; font-family: inherit; min-height: 30px; padding: 5px 12px; transition: filter .15s; }
+  .pill-btn:hover { filter: brightness(1.1); }
+  .pill-btn:disabled { opacity: .5; cursor: wait; }
+  .pill-btn:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(120%); background: var(--text); color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 0.85rem; z-index: 99; transition: transform .25s; box-shadow: 0 4px 18px rgba(0,0,0,.25); max-width: 90vw; }
+  #toast.show { transform: translateX(-50%) translateY(0); }
+  #toast.bad { background: var(--red); }
+  .outstanding-toggle { display:flex; align-items:center; gap:8px; font-size:0.8rem; color:var(--muted); cursor:pointer; margin-left:auto; }
+  .outstanding-toggle input { width:16px; height:16px; accent-color: var(--green); cursor:pointer; }
+  @media (max-width: 700px) {
+    .data-table { font-size: 0.76rem; }
+    .data-table th, .data-table td { padding: 8px 6px; }
+    .items-cell { max-width: 140px; }
+  }
 </style>
 </head>
 <body>
@@ -121,9 +136,71 @@
   <div id="error-msg"></div>
   <div id="dashboard"></div>
 </div>
+<div id="toast" role="status" aria-live="polite"></div>
+<div style="display:none">
+</div>
 
 <script>
 const BOT_URL = 'https://ojaa-meats-bot.onrender.com';
+
+/* ---- order status editing (writes straight back to the Google Sheet) ---- */
+let ORDERS = [], LINE_ITEMS = [], SHOW_OUTSTANDING_ONLY = false;
+
+function getAdminKey(force) {
+  let k = null;
+  try { k = sessionStorage.getItem('ojaa_admin_key'); } catch (e) {}
+  if (!k || force) {
+    k = window.prompt('Admin key (needed to change order status):', '');
+    if (!k) return null;
+    try { sessionStorage.setItem('ojaa_admin_key', k.trim()); } catch (e) {}
+    return k.trim();
+  }
+  return k;
+}
+
+function toast(msg, bad) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.toggle('bad', !!bad);
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), 3200);
+}
+
+async function setFlag(orderNum, field, next, btn) {
+  const key = getAdminKey(false);
+  if (!key) return;
+  btn.disabled = true;
+  try {
+    const res = await fetch(`${BOT_URL}/api/admin/order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, orderNum, [field]: next }),
+    });
+    const data = await res.json();
+    if (res.status === 401) {                       // wrong key — ask again
+      try { sessionStorage.removeItem('ojaa_admin_key'); } catch (e) {}
+      throw new Error('Wrong admin key. Tap again to re-enter it.');
+    }
+    if (!res.ok) throw new Error(data.error || 'Update failed');
+
+    // update our copy so the table reflects it without a full reload
+    const col = field === 'delivered' ? 'Delivered' : field === 'paid' ? 'Paid' : 'POP_Confirmed';
+    const o = ORDERS.find(x => (x.Order_num || '') === orderNum);
+    if (o) o[col] = next ? 'YES' : 'NO';
+
+    renderDashboard(ORDERS, LINE_ITEMS);
+    toast(`${orderNum} marked ${field === 'delivered' ? (next ? 'delivered' : 'not delivered') : (next ? 'paid' : 'unpaid')}`);
+  } catch (err) {
+    btn.disabled = false;
+    toast(err.message, true);
+  }
+}
+
+function toggleOutstanding(cb) {
+  SHOW_OUTSTANDING_ONLY = cb.checked;
+  renderDashboard(ORDERS, LINE_ITEMS);
+}
 
 async function loadData() {
   document.getElementById('loading').style.display = 'flex';
@@ -133,6 +210,7 @@ async function loadData() {
     const res = await fetch(`${BOT_URL}/dashboard-data`);
     if (!res.ok) throw new Error('Bot returned ' + res.status);
     const { orders, lineItems } = await res.json();
+    ORDERS = orders; LINE_ITEMS = lineItems;
     renderDashboard(orders, lineItems);
     document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
   } catch (err) {
@@ -213,7 +291,10 @@ function renderDashboard(orders, lineItems) {
     itemsByOrder[num].push(`${li.Product} x${li.Qty}`);
   });
 
-  const recentOrders = [...orders].reverse().slice(0, 10);
+  let recentOrders = [...orders].reverse();
+  if (SHOW_OUTSTANDING_ONLY) recentOrders = recentOrders.filter(o => (o.Delivered||'').toUpperCase() !== 'YES');
+  recentOrders = recentOrders.slice(0, SHOW_OUTSTANDING_ONLY ? 100 : 20);
+  const outstandingCount = orders.filter(o => (o.Delivered||'').toUpperCase() !== 'YES').length;
 
   const dash = document.getElementById('dashboard');
   dash.style.display = 'block';
@@ -238,11 +319,33 @@ function renderDashboard(orders, lineItems) {
     </div>
     <div class="section-grid">
       <div class="card"><div class="card-title">Top Customers</div>${customerTable(customerList)}</div>
-      <div class="card"><div class="card-title">Monthly Revenue</div>${monthData.length ? monthTable(monthData) : '<p class="no-data">No data yet</p>'}</div>
+      <div class="card"><div class="card-title">Order Status</div>${statusSummary(orders)}</div>
     </div>
-    <div class="card-full"><div class="card-title">Recent Orders</div>${recentOrdersTable(recentOrders, itemsByOrder)}</div>`;
+    <div class="card-full">
+      <div class="card-title">
+        ${SHOW_OUTSTANDING_ONLY ? 'Outstanding Orders' : 'Recent Orders'}
+        <label class="outstanding-toggle">
+          <input type="checkbox" ${SHOW_OUTSTANDING_ONLY ? 'checked' : ''} onchange="toggleOutstanding(this)">
+          Not delivered only (${outstandingCount})
+        </label>
+      </div>
+      <p style="font-size:0.75rem;color:var(--muted);margin:-12px 0 14px">Tap a Paid or Delivered badge to change it — it writes straight back to the Google Sheet.</p>
+      ${recentOrdersTable(recentOrders, itemsByOrder)}
+    </div>`;
 
   setTimeout(() => { document.querySelectorAll('.bar-fill').forEach(el => { el.style.width = el.dataset.width + '%'; }); }, 50);
+}
+
+function statusSummary(orders) {
+  const up = v => String(v||'').toUpperCase();
+  const rows = [
+    ['Awaiting payment',  orders.filter(o => up(o.Paid) !== 'YES').length],
+    ['Paid, not delivered', orders.filter(o => up(o.Paid) === 'YES' && up(o.Delivered) !== 'YES').length],
+    ['POP not confirmed', orders.filter(o => up(o.POP_Confirmed) !== 'YES').length],
+    ['Completed',         orders.filter(o => up(o.Delivered) === 'YES').length],
+  ];
+  return `<table class="data-table"><tbody>${rows.map(([label, count]) =>
+    `<tr><td>${label}</td><td class="amount" style="text-align:right">${count}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function kpi(label, value, sub) {
@@ -321,8 +424,15 @@ function recentOrdersTable(list, itemsByOrder) {
       const delivPill = delivType
         ? `<span class="pill ${delivType.toLowerCase().includes('delivery') ? 'pill-delivery' : 'pill-workshop'}">${delivType}</span>`
         : '—';
-      const paidPill = `<span class="pill ${(o.Paid||'').toUpperCase()==='YES'?'pill-yes':'pill-no'}">${o.Paid||'NO'}</span>`;
-      const deliveredPill = `<span class="pill ${(o.Delivered||'').toUpperCase()==='YES'?'pill-yes':'pill-no'}">${o.Delivered||'NO'}</span>`;
+      const isPaid = (o.Paid||'').toUpperCase()==='YES';
+      const isDelivered = (o.Delivered||'').toUpperCase()==='YES';
+      const esc = t => String(t||'').replace(/'/g, "\\'");
+      const paidPill = `<button class="pill pill-btn ${isPaid?'pill-yes':'pill-no'}"
+        title="Click to mark ${isPaid?'unpaid':'paid'}"
+        onclick="setFlag('${esc(orderNum)}','paid',${!isPaid},this)">${isPaid?'YES':'NO'}</button>`;
+      const deliveredPill = `<button class="pill pill-btn ${isDelivered?'pill-yes':'pill-no'}"
+        title="Click to mark ${isDelivered?'not delivered':'delivered'}"
+        onclick="setFlag('${esc(orderNum)}','delivered',${!isDelivered},this)">${isDelivered?'YES':'NO'}</button>`;
       return `<tr>
         <td class="order-num">${orderNum}</td>
         <td class="order-date">${fmtDate(o.Timestamp)}</td>
