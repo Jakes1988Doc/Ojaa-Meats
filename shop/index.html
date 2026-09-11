@@ -1180,6 +1180,65 @@ function applySheetRow(p, row){
   p.unavailable = false;
 }
 
+
+/* ------------------------------------------------------------
+   Any row in the Menu sheet that isn't already on a product card
+   gets one generated automatically, so adding a line to the sheet
+   puts it on the shop without editing this file.
+   ------------------------------------------------------------ */
+const SHEET_CAT_TO_FILTER = {
+  'biltong':'biltong', 'dry wors':'biltong', 'drywors':'biltong', 'droewors':'biltong',
+  'wors':'braai', 'boerewors':'braai', 'steak':'braai', 'rib':'braai', 'rash':'braai',
+  'pork':'braai', 'beef':'braai', 'lamb':'braai', 'chicken':'braai', 'braai':'braai',
+  'season':'extras', 'spice':'extras', 'salt':'extras', 'sauce':'extras',
+};
+function filterForSheetCategory(cat, name){
+  const hay = (String(cat||'') + ' ' + String(name||'')).toLowerCase();
+  for (const k in SHEET_CAT_TO_FILTER) if (hay.includes(k)) return SHEET_CAT_TO_FILTER[k];
+  return 'extras';
+}
+
+/* Reuse an existing product photo if the name is a close enough match. */
+function imageForSheetName(name){
+  const n = String(name||'').toLowerCase();
+  let best = null, score = 0;
+  for (const p of window.OJAA_PRODUCTS){
+    if (!p.image) continue;
+    const sc = scoreMatch(p.name, null, name);
+    if (sc > score){ score = sc; best = p.image; }
+  }
+  return score >= 0.5 ? best : null;
+}
+
+function addNewSheetProducts(){
+  // every sheet row already in use by a card
+  const used = new Set();
+  for (const p of products){
+    if (p.sheetByVariant) Object.values(p.sheetByVariant).forEach(r => used.add(String(r.id)));
+    if (p.sheet) used.add(String(p.sheet.id));
+  }
+
+  const added = [];
+  for (const row of SHEET_ROWS){
+    if (used.has(String(row.id))) continue;
+    const prod = {
+      id: 'sheet-' + row.id,
+      name: row.name,
+      category: filterForSheetCategory(row.category, row.name),
+      price: row.price,
+      unitLabel: tidyUnit(row.unit),
+      unitWeightKg: unitToKg(row.unit),
+      image: imageForSheetName(row.name) || null,
+      sheet: row,
+      unavailable: false,
+      autoAdded: true,
+    };
+    products.push(prod);
+    added.push(`${row.name} (row ${row.id})`);
+  }
+  if (added.length) console.info('OJAA: added straight from the Menu sheet →', added.join(' | '));
+}
+
 function bindSheetData(){
   const unmatched = [];
   for(const p of products){
@@ -1225,6 +1284,7 @@ async function loadLiveMenu(){
     SHEET_ROWS = data.items || [];
     SHOP_OPEN = data.open !== false;
     bindSheetData();
+    addNewSheetProducts();
     // unmatched products stay visible but can't be ordered online
 
     if(!SHOP_OPEN) showClosedBanner();
