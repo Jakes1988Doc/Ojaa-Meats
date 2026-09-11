@@ -1280,8 +1280,20 @@ function bindSheetData(){
         const row = bestRow(p, vn);
         if(row) p.sheetByVariant[vn] = row;
       }
-      const any = Object.values(p.sheetByVariant)[0];
+      const rows = Object.values(p.sheetByVariant);
+      const any = rows[0];
       if(!any){ unmatched.push(p.name); p.unavailable = true; continue; }
+
+      // Both variant rows should carry the same product name (apart from the
+      // Lean/Fatty marker). If they don't, say so — renaming only one row is
+      // an easy mistake and the card would silently keep the other name.
+      const names = rows.map(r => cleanSheetName(r.name, true));
+      if (new Set(names).size > 1) {
+        console.warn(
+          `OJAA: the two sheet rows behind "${names[0]}" have different names ` +
+          `(${names.join('  vs  ')}). The card uses the first. Rename both rows to match.`
+        );
+      }
       applySheetRow(p, any);
     } else {
       const row = bestRow(p, null);
