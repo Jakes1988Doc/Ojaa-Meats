@@ -1183,51 +1183,20 @@ function unitToKg(u){
    NAME_OVERRIDES below, keyed on the catalogue product id.
    ------------------------------------------------------------ */
 const NAME_OVERRIDES = {
-  // 'rump': '4 Week Aged Rump Steak',
+  // 'rump': 'Custom name that ignores the sheet',
 };
 
-const ABBREVIATIONS = [
-  [/\bOrig\b\.?/gi,                'Original'],
-  [/\bSalt\s*&\s*P\b\.?/gi,        'Salt & Pepper'],
-  [/\bS\s*&\s*P\b\.?/gi,           'Salt & Pepper'],
-  [/\bRash\b\.?/gi,                'Rashers'],
-  [/\bHon\s*&\s*Pineapp\b\.?/gi,   'Honey & Pineapple'],
-  [/\bPineapp\b\.?/gi,             'Pineapple'],
-  [/\bHon\b\.?/gi,                 'Honey'],
-  [/\bChill\b\.?/gi,               'Chilli'],
-  [/\bVac\b\.?/gi,                 'Vacuum'],
-  [/\bPk\b\.?/gi,                  'Pack'],
-];
-
-/* Words that read better in front: "Dry Wors (Spicy)" -> "Spicy Dry Wors" */
-const LEADING_WORDS = ['spicy','original','salt & pepper','chilli','hot','mild','smoked','honey & pineapple','garlic','peri peri'];
-
+/* Product names are taken exactly as typed in the Menu sheet.
+   The only change is stripping (Lean) / (Fatty) on the biltong rows,
+   because the cut is picked with buttons on the card rather than
+   being part of the product name. */
 function cleanSheetName(raw, hasVariants){
   let t = String(raw || '').trim();
-
-  // the cut is chosen with buttons, so it doesn't belong in the name
-  if (hasVariants) t = t.replace(/\(\s*(lean|fatty|fat)\s*\)/gi, '');
-
-  // pull out a bracketed descriptor so we can decide where it reads best
-  let lead = '';
-  t = t.replace(/\(\s*([^)]*?)\s*\)/g, (m, inner) => {
-    let x = inner.trim();
-    for (const [re, full] of ABBREVIATIONS) x = x.replace(re, full);
-    if (LEADING_WORDS.includes(x.toLowerCase())) { lead = x; return ' '; }
-    return ' ' + x + ' ';
-  });
-
-  for (const [re, full] of ABBREVIATIONS) t = t.replace(re, full);
-  t = t.replace(/\s{2,}/g, ' ').replace(/\s+&\s+/g, ' & ').trim();
-  // a trailing descriptor reads better in front too: "Beef Biltong Original"
-  if (!lead) {
-    for (const w of LEADING_WORDS) {
-      const re = new RegExp('\\s+' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i');
-      if (re.test(t)) { lead = t.match(re)[0].trim(); t = t.replace(re, ''); break; }
-    }
+  if (hasVariants) {
+    t = t.replace(/[\(\[]\s*(lean|fatty|fat)\s*[\)\]]/gi, '')   // "Biltong (Lean)"
+         .replace(/[-–—,]\s*(lean|fatty|fat)\s*$/gi, '')         // "Biltong - Lean"
+         .replace(/\s+(lean|fatty)\s*$/gi, '');                  // "Biltong Lean"
   }
-  if (lead) t = lead + ' ' + t;
-
   return t.replace(/\s{2,}/g, ' ').trim();
 }
 
