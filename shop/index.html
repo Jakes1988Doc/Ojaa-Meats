@@ -1317,7 +1317,20 @@ async function loadLiveMenu(){
     SHOP_OPEN = data.open !== false;
     bindSheetData();
     addNewSheetProducts();
-    // unmatched products stay visible but can't be ordered online
+
+    // A product with no row in the Menu sheet has been taken off the range,
+    // so remove its card entirely rather than leaving a dead "call to order".
+    const dropped = [];
+    for (let i = products.length - 1; i >= 0; i--) {
+      if (products[i].unavailable) { dropped.push(products[i].name); products.splice(i, 1); }
+    }
+    if (dropped.length) console.info('OJAA: not in the Menu sheet, hidden \u2192', dropped.join(' | '));
+
+    // anything removed also comes out of a saved basket
+    for (const k of Object.keys(state.cart)) {
+      if (!products.find(p => p.id === state.cart[k].productId)) delete state.cart[k];
+    }
+    persistCart(state.cart);
 
     if(!SHOP_OPEN) showClosedBanner();
     pruneCartAgainstStock();
