@@ -1173,11 +1173,74 @@ function unitToKg(u){
   if (g)  return parseFloat(g[1]) / 1000;
   return 1;
 }
+/* ------------------------------------------------------------
+   Product names come from the Menu sheet, so renaming a row there
+   renames the card here. Sheet names are abbreviated, so we expand
+   the common shorthand and strip the (Lean)/(Fatty) suffix, since
+   the cut is chosen with buttons on the card instead.
+
+   To pin a name that shouldn't follow the sheet, add it to
+   NAME_OVERRIDES below, keyed on the catalogue product id.
+   ------------------------------------------------------------ */
+const NAME_OVERRIDES = {
+  // 'rump': '4 Week Aged Rump Steak',
+};
+
+const ABBREVIATIONS = [
+  [/\bOrig\b\.?/gi,                'Original'],
+  [/\bSalt\s*&\s*P\b\.?/gi,        'Salt & Pepper'],
+  [/\bS\s*&\s*P\b\.?/gi,           'Salt & Pepper'],
+  [/\bRash\b\.?/gi,                'Rashers'],
+  [/\bHon\s*&\s*Pineapp\b\.?/gi,   'Honey & Pineapple'],
+  [/\bPineapp\b\.?/gi,             'Pineapple'],
+  [/\bHon\b\.?/gi,                 'Honey'],
+  [/\bChill\b\.?/gi,               'Chilli'],
+  [/\bVac\b\.?/gi,                 'Vacuum'],
+  [/\bPk\b\.?/gi,                  'Pack'],
+];
+
+/* Words that read better in front: "Dry Wors (Spicy)" -> "Spicy Dry Wors" */
+const LEADING_WORDS = ['spicy','original','salt & pepper','chilli','hot','mild','smoked','honey & pineapple','garlic','peri peri'];
+
+function cleanSheetName(raw, hasVariants){
+  let t = String(raw || '').trim();
+
+  // the cut is chosen with buttons, so it doesn't belong in the name
+  if (hasVariants) t = t.replace(/\(\s*(lean|fatty|fat)\s*\)/gi, '');
+
+  // pull out a bracketed descriptor so we can decide where it reads best
+  let lead = '';
+  t = t.replace(/\(\s*([^)]*?)\s*\)/g, (m, inner) => {
+    let x = inner.trim();
+    for (const [re, full] of ABBREVIATIONS) x = x.replace(re, full);
+    if (LEADING_WORDS.includes(x.toLowerCase())) { lead = x; return ' '; }
+    return ' ' + x + ' ';
+  });
+
+  for (const [re, full] of ABBREVIATIONS) t = t.replace(re, full);
+  t = t.replace(/\s{2,}/g, ' ').replace(/\s+&\s+/g, ' & ').trim();
+  // a trailing descriptor reads better in front too: "Beef Biltong Original"
+  if (!lead) {
+    for (const w of LEADING_WORDS) {
+      const re = new RegExp('\\s+' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i');
+      if (re.test(t)) { lead = t.match(re)[0].trim(); t = t.replace(re, ''); break; }
+    }
+  }
+  if (lead) t = lead + ' ' + t;
+
+  return t.replace(/\s{2,}/g, ' ').trim();
+}
+
 function applySheetRow(p, row){
-  p.price       = row.price;
-  p.unitLabel   = tidyUnit(row.unit);
+  p.price        = row.price;
+  p.unitLabel    = tidyUnit(row.unit);
   p.unitWeightKg = unitToKg(row.unit);
-  p.unavailable = false;
+  p.unavailable  = false;
+
+  const override = NAME_OVERRIDES[p.id];
+  if (override) { p.name = override; return; }
+  const tidy = cleanSheetName(row.name, !!(p.variants && p.variants.length));
+  if (tidy) p.name = tidy;
 }
 
 
@@ -1223,7 +1286,7 @@ function addNewSheetProducts(){
     if (used.has(String(row.id))) continue;
     const prod = {
       id: 'sheet-' + row.id,
-      name: row.name,
+      name: cleanSheetName(row.name, false),
       category: filterForSheetCategory(row.category, row.name),
       price: row.price,
       unitLabel: tidyUnit(row.unit),
@@ -1432,6 +1495,52 @@ function renderProducts(){
       updateCardTotals();
     });
 
+    /* ---- sold out / low stock, straight from the Stock on hand sheet ---- */
+    function applyStockState(){
+      const variant = card.dataset.variant || '';
+      const st = stockFor(p, variant);
+      const btn = card.querySelector('.add-btn');
+      if(!btn) return;
+
+      let note = card.querySelector('.stock-note');
+      if(!note){
+        note = document.createElement('p');
+        note.className = 'stock-note';
+        note.style.cssText = 'margin:8px 0 0;font-size:13px;text-align:center';
+        btn.parentNode.appendChild(note);
+      }
+
+      const steppers = card.querySelectorAll('[data-step]');
+
+      if(!p.unavailable && !st.inStock){
+        card.style.opacity = '.55';
+        btn.disabled = true;
+        btn.textContent = 'SOLD OUT';
+        steppers.forEach(b => b.disabled = true);
+        note.style.color = 'var(--red)';
+        note.textContent = 'Out of stock — back soon';
+      } else if(!p.unavailable){
+        card.style.opacity = '';
+        btn.disabled = false;
+        if(btn.textContent === 'SOLD OUT') btn.textContent = 'ADD TO ORDER';
+        steppers.forEach(b => b.disabled = false);
+        if(st.available !== null && st.available !== undefined && st.available <= 3){
+          note.style.color = 'var(--gold)';
+          note.textContent = `Only ${st.available} left`;
+        } else {
+          note.textContent = '';
+        }
+        // don't let the customer step past what's on the shelf
+        if(st.available !== null && Number(card.dataset.qty) > st.available){
+          card.dataset.qty = Math.max(1, Math.floor(st.available));
+          const t = card.querySelector('[data-total-weight]');
+          if(t) t.textContent = String(card.dataset.qty);
+        }
+      }
+    }
+    applyStockState();
+    variantButtons.forEach(b => b.addEventListener('click', applyStockState));
+
     if(p.unavailable){
       const btn=card.querySelector('.add-btn');
       if(btn){
@@ -1449,7 +1558,11 @@ function renderProducts(){
 
     card.querySelector('.add-btn').onclick=()=>{
       const variant=card.dataset.variant||'';
-      const addQty=Number(card.dataset.qty);
+      const st=stockFor(p,variant);
+      if(!st.inStock){ announce(`${p.name} is out of stock.`); return; }
+      let addQty=Number(card.dataset.qty);
+      if(st.available!==null && addQty>st.available) addQty=Math.floor(st.available);
+      if(addQty<1) return;
       const k=keyFor(p,variant);
       state.cart[k] = state.cart[k] || {productId:p.id,variant,qty:0};
       state.cart[k].qty += addQty;
