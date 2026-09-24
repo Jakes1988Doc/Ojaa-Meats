@@ -1072,6 +1072,7 @@ const SHEET_MATCH = {};
 const VARIANT_WORDS = { 'Lean':['lean'], 'Fatty':['fat'] };
 
 let SHEET_ROWS = [];
+let MENU_READY = false;   // true once /api/menu has answered
 let SHOP_OPEN = true;
 
 function normTokens(t){
@@ -1315,6 +1316,9 @@ function sheetFor(p, variant){
   return p.sheet || null;
 }
 function stockFor(p, variant){
+  // Before the live menu arrives we know nothing — assume available rather
+  // than flashing SOLD OUT across the whole shop during a cold start.
+  if(!MENU_READY) return { inStock:true, available:null, unknown:true };
   const r = sheetFor(p, variant);
   if(!r) return { inStock:false, available:0 };
   return { inStock:r.inStock, available:r.available };
@@ -1327,6 +1331,7 @@ async function loadLiveMenu(){
     const data = await res.json();
     SHEET_ROWS = data.items || [];
     SHOP_OPEN = data.open !== false;
+    MENU_READY = true;
     bindSheetData();
     addNewSheetProducts();
 
@@ -1380,7 +1385,7 @@ function pruneCartAgainstStock(){
     const p = products.find(x=>x.id===v.productId);
     if(!p){ delete state.cart[k]; changed = true; continue; }
     const st = stockFor(p, v.variant);
-    if(!st.inStock){ delete state.cart[k]; changed = true; }
+    if(!st.unknown && !st.inStock){ delete state.cart[k]; changed = true; }
   }
   if(changed) persistCart(state.cart);
 }
@@ -1506,6 +1511,11 @@ function renderProducts(){
 
       const steppers = card.querySelectorAll('[data-step]');
 
+      if(st.unknown){            // still waiting on the sheet — leave the card alone
+        note.textContent = '';
+        return;
+      }
+
       if(!p.unavailable && !st.inStock){
         card.style.opacity = '.55';
         btn.disabled = true;
@@ -1553,7 +1563,7 @@ function renderProducts(){
     card.querySelector('.add-btn').onclick=()=>{
       const variant=card.dataset.variant||'';
       const st=stockFor(p,variant);
-      if(!st.inStock){ announce(`${p.name} is out of stock.`); return; }
+      if(!st.unknown && !st.inStock){ announce(`${p.name} is out of stock.`); return; }
       let addQty=Number(card.dataset.qty);
       if(st.available!==null && addQty>st.available) addQty=Math.floor(st.available);
       if(addQty<1) return;
