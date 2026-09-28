@@ -1,18 +1,19 @@
 # Ojaa Meats & More — product photos
 #
 # TO CHANGE A PHOTO
-#   1. Put the picture file in this same assets/ folder.
-#   2. Find the product below, delete the # at the start of its line,
-#      and make sure the filename matches your file exactly.
-#   3. Commit. The shop picks it up on the next page load.
+#   1. Upload the picture into this same folder (shop).
+#   2. Find the product below and delete the # and the space at the
+#      start of its line.
+#   3. Make sure the filename matches your picture exactly.
+#   4. Commit. The shop picks it up on the next page load.
 #
-# TO GO BACK to the built-in photo, put the # back at the start of the line.
+# TO GO BACK to the built-in photo, put the # and space back.
 #
 # RULES
 #   - the name before the dot must stay exactly as printed below
 #   - all lower case, .jpg or .png
 #   - landscape, roughly 1200 x 760, under 300 KB keeps the shop fast
-#   - a line starting with # is ignored
+#   - the second # on each line is just a label — leave it alone
 #
 # ---------------------------------------------------------------------
 
