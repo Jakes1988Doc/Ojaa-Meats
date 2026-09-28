@@ -67,6 +67,19 @@ button:disabled{opacity:.45;cursor:not-allowed}
 
 .product-grid{display:grid;gap:16px}
 .product-card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;min-width:0}
+.no-photo{
+  width:100%;height:clamp(190px,58vw,230px);display:grid;place-items:center;
+  background:linear-gradient(135deg,#1b140f,#241a12);border-bottom:1px solid var(--border);
+  padding:0 18px;text-align:center;
+}
+.no-photo span{
+  font-family:Georgia,serif;font-size:19px;font-weight:700;color:var(--gold);
+  opacity:.75;line-height:1.3;overflow-wrap:anywhere;
+}
+.no-photo-thumb{
+  width:68px;height:68px;border-radius:7px;flex:0 0 68px;
+  background:linear-gradient(135deg,#1b140f,#241a12);border:1px solid var(--border);
+}
 .product-card img{width:100%;height:clamp(190px,58vw,230px);object-fit:cover;display:block;background:#120e0a}
 .product-body{padding:16px}
 .product-name{font-size:20px;line-height:1.2;font-weight:900;margin:0 0 8px;overflow-wrap:anywhere;color:var(--gold2)}
@@ -1232,15 +1245,66 @@ function filterForSheetCategory(cat, name){
 }
 
 /* Reuse an existing product photo if the name is a close enough match. */
+/* Photos are only borrowed from an existing product when the two are
+   clearly the SAME cut of meat — otherwise a new sheet row can end up
+   showing a picture of something else entirely. Two rules must both pass:
+     1. the product nouns match (boerewors ~ boerewors, not ~ biltong)
+     2. the overall name similarity is high
+   Anything short of that gets no photo, which is better than a wrong one. */
+/* A photo is only borrowed when the two products are clearly the same cut.
+   SPECIFIC nouns identify a product; GENERIC ones ("steak", "chop") are far
+   too broad on their own — a sirloin is not a pork ribeye. */
+const SPECIFIC_NOUNS = [
+  'biltong','drywors','boerewors','rash','ribeye','rib','rump',
+  'skilpadjie','sosatie','braaisalt','fillet','brisket','wing','neck',
+];
+const GENERIC_NOUNS = ['steak','chop','sausage','patty','mince','wors','pack','salt'];
+
+function nounsIn(name){
+  let t = String(name||'').toLowerCase().replace(/[^a-z0-9]+/g,' ');
+  t = t.replace(/\bdro?[eë]\s*wors\b/g,'drywors').replace(/\bdry\s*wors\b/g,'drywors');
+  t = t.replace(/\bbraai\s*salt\b/g,'braaisalt');
+  const found = new Set();
+  for (const n of SPECIFIC_NOUNS){
+    if (!t.includes(n)) continue;
+    // "rib" sits inside "ribeye" — only count the standalone cut
+    if (n === 'rib' && t.includes('ribeye')) continue;
+    found.add(n);
+  }
+  return found;
+}
+
+/* Never show pork where the customer expects beef, or lamb where they
+   expect pork. If either name states a species, they must agree. */
+const SPECIES = ['beef','pork','lamb','chicken','game','venison','ostrich','mutton'];
+function speciesIn(name){
+  const t = String(name||'').toLowerCase();
+  return SPECIES.filter(sp => new RegExp('\\b' + sp, 'i').test(t));
+}
+
+function sameProduct(a, b){
+  const sa = speciesIn(a), sb = speciesIn(b);
+  if ((sa.length || sb.length) && !sa.some(x => sb.includes(x))) return false;
+
+  const na = nounsIn(a), nb = nounsIn(b);
+  if (!na.size || !nb.size) return false;          // no specific noun = no match
+  for (const n of na) if (nb.has(n)) return true;
+  return false;
+}
+
 function imageForSheetName(name){
-  const n = String(name||'').toLowerCase();
   let best = null, score = 0;
   for (const p of window.OJAA_PRODUCTS){
     if (!p.image) continue;
+    if (!sameProduct(p.name, name)) continue;      // must be the same cut
     const sc = scoreMatch(p.name, null, name);
     if (sc > score){ score = sc; best = p.image; }
   }
-  return score >= 0.5 ? best : null;
+  // sameProduct() is the real gate — the score only ranks candidates that
+  // already passed it, so there is no extra threshold here.
+  if (best) return best;
+  console.info(`OJAA: no matching photo for "${name}" — showing it without one.`);
+  return null;
 }
 
 function addNewSheetProducts(){
@@ -1392,6 +1456,136 @@ function pruneCartAgainstStock(){
 
 const OJAA_IMAGE_DATA = window.OJAA_IMAGE_DATA || {};
 const imageSrc = name => OJAA_IMAGE_DATA[name] || `assets/${name}`;
+
+/* ------------------------------------------------------------------ *
+ * PHOTOS  —  changing one without touching this file
+ *
+ * Everything lives in the website repo's  assets/  folder:
+ *
+ *   1. Put the picture in  assets/   e.g.  assets/rump.jpg
+ *   2. Add that filename on its own line in  assets/photos.txt
+ *
+ * Commit, and the shop uses it. The filename (without the extension)
+ * must be the product's CODE, so renaming a product in the Google
+ * Sheet can never break its photo. assets/photos.txt lists every code.
+ *
+ * Remove the line again and the built-in photo comes back.
+ *
+ * One small request fetches photos.txt — the shop deliberately does not
+ * go hunting for files that may not exist, because every miss costs a
+ * customer on mobile data a wasted download.
+ * ------------------------------------------------------------------ */
+const PHOTO_DIR = 'assets/';
+
+function slugFor(name){
+  return String(name||'').toLowerCase()
+    .replace(/&/g,' and ')
+    .replace(/[^a-z0-9]+/g,'-')
+    .replace(/^-+|-+$/g,'');
+}
+/* The key a photo file must be named after: the product code, with the
+   hyphenated product name accepted as an alternative. */
+function photoKeysFor(p){
+  const keys = [String(p.id).toLowerCase()];
+  const bySlug = slugFor(p.name);
+  if(bySlug && !keys.includes(bySlug)) keys.push(bySlug);
+  return keys;
+}
+
+async function loadPhotoManifest(){
+  let text;
+  try{
+    const res = await fetch(PHOTO_DIR + 'photos.txt', { cache:'no-cache' });
+    if(!res.ok) return {};                 // no list yet — built-in photos stand
+    text = await res.text();
+  }catch{ return {}; }
+
+  const files = text.split(/\r?\n/)
+    .map(l => l.replace(/#.*$/,'').trim())             // drop comments, whole-line or trailing
+    .filter(Boolean)
+    .map(l => l.replace(/^\.?\/?assets\//i,''));     // tolerate "assets/rump.jpg"
+
+  const byKey = {};
+  const orphans = [];
+  for(const file of files){
+    const stem = file.replace(/\.[a-z0-9]+$/i,'').toLowerCase();
+    if(!stem) continue;
+    const owner = products.find(p => photoKeysFor(p).includes(stem));
+    if(owner) byKey[String(owner.id)] = PHOTO_DIR + file;
+    else orphans.push(file);
+  }
+  if(orphans.length){
+    console.warn('OJAA: these lines in assets/photos.txt match no product — check the spelling against the codes below:\n  ' +
+      orphans.join('\n  '));
+    ojaaPhotoNames();
+  }
+  return byKey;
+}
+
+function photoUrlFor(p){
+  return p.photoUrl || (p.image ? imageSrc(p.image) : null);
+}
+function productPhotoHtml(p, index){
+  const src = photoUrlFor(p);
+  return src
+    ? `<img class="card-photo" src="${src}" alt="${p.name}" width="766" height="482" loading="${index===0?'eager':'lazy'}" fetchpriority="${index===0?'high':'auto'}" decoding="async">`
+    : `<div class="no-photo card-photo" role="img" aria-label="${p.name}"><span>${p.name}</span></div>`;
+}
+function cartPhotoHtml(p){
+  const src = photoUrlFor(p);
+  return src
+    ? `<img src="${src}" alt="" width="68" height="68" loading="lazy">`
+    : `<div class="no-photo-thumb" aria-hidden="true"></div>`;
+}
+
+/* Swap one card's picture in place, so a customer part-way through
+   picking a cut doesn't get the whole grid rebuilt under them. */
+function repaintPhoto(p){
+  if(!productGrid) return;
+  productGrid.querySelectorAll('.product-card').forEach(card=>{
+    if(card.dataset.pid !== String(p.id)) return;
+    const cur = card.querySelector('.card-photo');
+    if(!cur) return;
+    const holder = document.createElement('div');
+    holder.innerHTML = productPhotoHtml(p, 1);
+    cur.replaceWith(holder.firstElementChild);
+  });
+}
+
+function ojaaPhotoNames(){
+  const rows = products.map(p=>{
+    const has = p.photoUrl ? '  (now: ' + p.photoUrl + ')' : (p.image ? '' : '  (NO PHOTO)');
+    return '  ' + (p.id + '.jpg').padEnd(26) + p.name + has;
+  });
+  console.info(
+    'Ojaa photos — to change one:\n' +
+    '  1. put the picture in the assets/ folder, named exactly as below\n' +
+    '  2. add that filename on its own line in assets/photos.txt\n\n' +
+    rows.join('\n') + '\n\n(.png works too — just match the extension in photos.txt.)'
+  );
+  return products.map(p=>({ product:p.name, filename:PHOTO_DIR + p.id + '.jpg', current:photoUrlFor(p) ? (p.photoUrl||'built in') : 'none' }));
+}
+window.ojaaPhotoNames = ojaaPhotoNames;
+
+/* Runs after the first paint, so the customer is never looking at a
+   blank card while the list is fetched. */
+let photoManifest = null;
+async function applyPhotoOverrides(){
+  if(photoManifest === null) photoManifest = await loadPhotoManifest();
+  let changed = false;
+  for(const p of products){
+    const url = photoManifest[String(p.id)];
+    if(!url || p.photoUrl === url) continue;
+    p.photoUrl = url;
+    repaintPhoto(p);
+    changed = true;
+  }
+  if(changed){
+    updateCartUI();
+    // if the basket happens to be open, redraw its thumbnails too
+    if(document.querySelector('#cartPanel.open')) renderCart();
+  }
+}
 function loadCart(){
   try { return JSON.parse(localStorage.getItem('ojaaCartV36') || '{}'); }
   catch { return {}; }
@@ -1439,9 +1633,10 @@ function renderProducts(){
     const defaultVariant=p.variants?.[0]||'';
     card.dataset.variant=defaultVariant;
     card.dataset.qty=1;
+    card.dataset.pid=p.id;
 
     card.innerHTML=`
-      <img src="${imageSrc(p.image)}" alt="${p.name}" width="766" height="482" loading="${index===0?'eager':'lazy'}" fetchpriority="${index===0?'high':'auto'}" decoding="async">
+      ${productPhotoHtml(p, index)}
       <div class="product-body">
         <h3 class="product-name">${p.name}</h3>
         <div class="price">${money(p.price)} <small>/ ${p.unitLabel}</small></div>
@@ -1626,7 +1821,7 @@ function renderCart(){
     const row=document.createElement('div');
     row.className='cart-row';
     row.innerHTML=`
-      <img src="${imageSrc(p.image)}" alt="" width="68" height="68" loading="lazy">
+      ${cartPhotoHtml(p)}
       <div>
         <h3>${p.name}</h3>
         <p>${v.variant?`${v.variant} · `:''}${money(p.price)} per ${p.unitLabel}</p>
@@ -1851,11 +2046,13 @@ document.addEventListener('keydown',e=>{
    corrected the moment the live menu arrives. */
 renderProducts();
 updateCartUI();
+applyPhotoOverrides();
 showStockNotice(true);
 loadLiveMenu().then(()=>{
   showStockNotice(false);
   renderProducts();
   updateCartUI();
+  applyPhotoOverrides();   // products that arrived straight from the sheet
 });
 
 function showStockNotice(on){
@@ -1882,6 +2079,7 @@ async function refreshMenu(){
   await loadLiveMenu();
   renderProducts();
   updateCartUI();
+  applyPhotoOverrides();
   lastMenuLoad = Date.now();
 }
 document.addEventListener('visibilitychange', ()=>{
