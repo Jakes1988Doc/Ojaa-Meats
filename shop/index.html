@@ -1132,42 +1132,48 @@ function matchRow(words, extra){
   });
 }
 
-/* Best sheet row for a product (+ optional variant), by keyword rule first,
-   then by fuzzy score. Returns null only if nothing plausible exists. */
-function bestRow(p, variant){
-  // 1. explicit ID mapping wins
-  const mapped = SHEET_ID_MAP[p.id];
-  if (mapped) {
-    const wantId = (typeof mapped === 'string') ? mapped : mapped[variant];
-    if (wantId) {
-      const row = SHEET_ROWS.find(r => String(r.id) === String(wantId));
-      if (row) return row;
-      console.warn(`OJAA: "${p.name}" is mapped to Menu row ID ${wantId}, which no longer exists.`);
-    }
-  }
+/* Rows already taken by another card, so two products can never end up
+   sharing (or stealing) the same sheet row. Reset on every bind. */
+let CLAIMED = new Set();
 
-  const words = SHEET_MATCH[p.id];
-  if(words){
-    const strict = matchRow(words, variant ? VARIANT_WORDS[variant] : null);
-    if(strict.length) return strict[0];
+/* Does the hard-coded map point this product (+cut) at this row? */
+function isMappedTo(p, variant, row){
+  const mapped = SHEET_ID_MAP[p.id];
+  if(!mapped) return false;
+  const wantId = (typeof mapped === 'string') ? mapped : mapped[variant];
+  return !!wantId && String(wantId) === String(row.id);
+}
+
+/* How well a row suits a product (+cut). 0 means "not this one".
+
+   The hard-coded row number is only a nudge, never proof: deleting or
+   inserting a row in the Menu sheet renumbers everything after it, and a
+   blindly trusted number then hands a card someone else's product. The
+   name has to agree as well. */
+function pairScore(p, variant, row){
+  const rn = String(row.name||'').toLowerCase();
+
+  // the cut must not contradict: a Lean card cannot take the Fatty row
+  if(variant){
+    const other = Object.keys(VARIANT_WORDS).find(v => v !== variant);
+    const hasMine  = (VARIANT_WORDS[variant] || []).some(w => rn.includes(w));
+    const hasOther = (other ? VARIANT_WORDS[other] : []).some(w => rn.includes(w));
+    if(hasOther && !hasMine) return 0;
   }
-  let best=null, bestScore=0;
-  for(const r of SHEET_ROWS){
-    let sc = scoreMatch(p.name, variant, r.name);
-    // a variant must not match a row belonging to the other variant
-    if(variant){
-      const rn = String(r.name||'').toLowerCase();
-      const other = Object.keys(VARIANT_WORDS).find(v=>v!==variant);
-      const otherWords = other ? VARIANT_WORDS[other] : [];
-      const mineWords = VARIANT_WORDS[variant] || [];
-      const hasMine  = mineWords.some(w=>rn.includes(w));
-      const hasOther = otherWords.some(w=>rn.includes(w));
-      if(hasOther && !hasMine) continue;
-      if(hasMine) sc += 0.35;
-    }
-    if(sc > bestScore){ bestScore = sc; best = r; }
-  }
-  return bestScore >= 0.55 ? best : null;
+  // and it must still be the same kind of meat
+  if(!plausiblySameProduct(p.name, row.name)) return 0;
+
+  let sc = scoreMatch(p.name, variant, row.name);
+  if(variant && (VARIANT_WORDS[variant] || []).some(w => rn.includes(w))) sc += 0.35;
+
+  // Now that the cut and the meat have been checked, the pinned row number
+  // is trustworthy enough to carry a product whose catalogue name reads
+  // nothing like the sheet's ("Honey & Pineapple Pork Rashers" vs "Pork
+  // Rashers"). It is a floor, not a boost — a card that genuinely matches
+  // the row by name still outranks a pin, which is what lets a renumbered
+  // sheet sort itself out.
+  if(isMappedTo(p, variant, row)) return Math.max(sc, 0.75) + 0.01;
+  return sc < 0.55 ? 0 : sc;
 }
 
 /* attach .sheet = {id, price, inStock, available} per product/variant */
@@ -1282,6 +1288,21 @@ function speciesIn(name){
   return SPECIES.filter(sp => new RegExp('\\b' + sp, 'i').test(t));
 }
 
+/* Is a hard-coded row mapping still pointing at the right product?
+   Looser than sameProduct(): the catalogue calls it "Original Biltong"
+   while the sheet says "Beef Biltong (Original)", and that must pass.
+   What must NOT pass is a row that has become a different cut. */
+function plausiblySameProduct(a, b){
+  const sa = speciesIn(a), sb = speciesIn(b);
+  // only a stated disagreement counts — one side staying silent is fine
+  if (sa.length && sb.length && !sa.some(x => sb.includes(x))) return false;
+  const na = nounsIn(a), nb = nounsIn(b);
+  if (!na.size && !nb.size) return true;    // nothing specific to judge on
+  if (!na.size || !nb.size) return false;   // one names a cut, the other doesn't
+  for (const n of na) if (nb.has(n)) return true;
+  return false;
+}
+
 function sameProduct(a, b){
   const sa = speciesIn(a), sb = speciesIn(b);
   if ((sa.length || sb.length) && !sa.some(x => sb.includes(x))) return false;
@@ -1338,16 +1359,57 @@ function addNewSheetProducts(){
 
 function bindSheetData(){
   const unmatched = [];
+  CLAIMED = new Set();
+
+  // One slot per thing that needs a row: a plain product, or each cut of a
+  // product with variants.
+  const slots = [];
   for(const p of products){
+    if(p.variants && p.variants.length) p.variants.forEach(vn => slots.push({p, vn}));
+    else slots.push({p, vn:null});
+  }
+
+  // Score every slot against every row, then hand out the strongest pairing
+  // first. Assigning best-first rather than product-by-product means one
+  // card can't grab a row another card was a better fit for.
+  const pairs = [];
+  for(const slot of slots){
+    for(const row of SHEET_ROWS){
+      const sc = pairScore(slot.p, slot.vn, row);
+      if(sc > 0) pairs.push({ slot, row, sc });
+    }
+  }
+  pairs.sort((a,b) => b.sc - a.sc);
+  for(const { slot, row } of pairs){
+    if(slot.row || CLAIMED.has(String(row.id))) continue;
+    slot.row = row;
+    CLAIMED.add(String(row.id));
+  }
+
+  // Say so when a hard-coded row number turned out to be stale, so the
+  // reason a card moved is visible rather than mysterious.
+  for(const slot of slots){
+    const mapped = SHEET_ID_MAP[slot.p.id];
+    if(!mapped) continue;
+    const wantId = (typeof mapped === 'string') ? mapped : mapped[slot.vn];
+    if(!wantId || (slot.row && String(slot.row.id) === String(wantId))) continue;
+    const stale = SHEET_ROWS.find(r => String(r.id) === String(wantId));
+    const cut = slot.vn ? ` (${slot.vn})` : '';
+    console.warn(
+      `OJAA: "${slot.p.name}"${cut} is pinned to Menu row ${wantId}, which ` +
+      (stale ? `now reads "${stale.name}"` : 'no longer exists') +
+      '. Matched on name instead' + (slot.row ? ` → row ${slot.row.id} "${slot.row.name}".` : ', but nothing fits.')
+    );
+  }
+
+  for(const p of products){
+    const mine = slots.filter(s => s.p === p && s.row);
+    if(!mine.length){ unmatched.push(p.name); p.unavailable = true; continue; }
+
     if(p.variants && p.variants.length){
       p.sheetByVariant = {};
-      for(const vn of p.variants){
-        const row = bestRow(p, vn);
-        if(row) p.sheetByVariant[vn] = row;
-      }
+      mine.forEach(s => { if(s.vn) p.sheetByVariant[s.vn] = s.row; });
       const rows = Object.values(p.sheetByVariant);
-      const any = rows[0];
-      if(!any){ unmatched.push(p.name); p.unavailable = true; continue; }
 
       // Both variant rows should carry the same product name (apart from the
       // Lean/Fatty marker). If they don't, say so — renaming only one row is
@@ -1359,12 +1421,10 @@ function bindSheetData(){
           `(${names.join('  vs  ')}). The card uses the first. Rename both rows to match.`
         );
       }
-      applySheetRow(p, any);
+      applySheetRow(p, rows[0]);
     } else {
-      const row = bestRow(p, null);
-      if(!row){ unmatched.push(p.name); p.unavailable = true; continue; }
-      p.sheet = row;
-      applySheetRow(p, row);
+      p.sheet = mine[0].row;
+      applySheetRow(p, mine[0].row);
     }
   }
   if(unmatched.length){
@@ -1493,20 +1553,34 @@ function photoKeysFor(p){
   const keys = [String(p.id).toLowerCase()];
   const bySlug = slugFor(p.name);
   if(bySlug && !keys.includes(bySlug)) keys.push(bySlug);
+  // also the name with any (bracketed) detail dropped, so a mouthful like
+  // "Porterhouse Steak (4 weeks aged)" answers to porterhouse-steak.jpg
+  const bare = slugFor(String(p.name).replace(/[\(\[].*?[\)\]]/g,' '));
+  if(bare && !keys.includes(bare)) keys.push(bare);
   return keys;
 }
 
-async function loadPhotoManifest(){
-  let text = null;
+/* The file is fetched once, but matched against the product list every
+   time — products arriving later from the Menu sheet must still be able
+   to claim their photo. */
+let photoManifestText;
+async function fetchPhotoManifest(){
+  if(photoManifestText !== undefined) return photoManifestText;
+  photoManifestText = null;
   for(const dir of PHOTO_DIRS){
     try{
       const res = await fetch(dir + 'photos.txt', { cache:'no-cache' });
       if(!res.ok) continue;
-      text = await res.text();
+      photoManifestText = await res.text();
       PHOTO_DIR = dir;
       break;
     }catch{ /* try the next place */ }
   }
+  return photoManifestText;
+}
+
+async function loadPhotoManifest(){
+  const text = await fetchPhotoManifest();
   if(text === null) return {};             // no list yet — built-in photos stand
 
   const files = text.split(/\r?\n/)
@@ -1525,7 +1599,7 @@ async function loadPhotoManifest(){
     if(owner) byKey[String(owner.id)] = file.includes('/') ? file : PHOTO_DIR + file;
     else orphans.push(file);
   }
-  if(orphans.length){
+  if(orphans.length && MENU_READY){
     console.warn('OJAA: these lines in photos.txt match no product — check the spelling against the codes below:\n  ' +
       orphans.join('\n  '));
     ojaaPhotoNames();
@@ -1581,9 +1655,9 @@ window.ojaaPhotoNames = ojaaPhotoNames;
 
 /* Runs after the first paint, so the customer is never looking at a
    blank card while the list is fetched. */
-let photoManifest = null;
+let photoManifest = {};
 async function applyPhotoOverrides(){
-  if(photoManifest === null) photoManifest = await loadPhotoManifest();
+  photoManifest = await loadPhotoManifest();
   let changed = false;
   for(const p of products){
     const url = photoManifest[String(p.id)];
