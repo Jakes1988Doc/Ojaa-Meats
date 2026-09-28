@@ -1,16 +1,17 @@
 # Ojaa Meats & More — product photos
 #
-# TO CHANGE A PHOTO
-#   1. Upload the picture into this same folder (shop).
-#   2. Find the product below and delete the # and the space at the
-#      start of its line.
-#   3. Make sure the filename matches your picture exactly.
-#   4. Commit. The shop picks it up on the next page load.
+# EVERY PHOTO IS NOW AN ORDINARY FILE IN THIS photos/ FOLDER.
 #
-# TO GO BACK to the built-in photo, put the # and space back.
+# TO CHANGE A PHOTO on a product that already has one:
+#   just upload a picture into this folder with the SAME filename and
+#   let it overwrite. You do not need to touch this file at all.
+#     e.g. to change the rump photo, upload a new  rump.jpg
+#
+# THIS FILE IS ONLY NEEDED when a product has no photo yet — usually one
+# you have just added in the Google Sheet. Upload the picture, then delete
+# the # and the space at the start of that product line below.
 #
 # RULES
-#   - the name before the dot must stay exactly as printed below
 #   - all lower case, .jpg or .png
 #   - landscape, roughly 1200 x 760, under 300 KB keeps the shop fast
 #   - the second # on each line is just a label — leave it alone
@@ -29,8 +30,7 @@
 # chilli-salt.jpg             # Chilli Braai Salt
 # pork-ribeye.jpg             # Pork Ribeye Steak
 porterhouse-steak.jpg         # Porterhouse Steak (4 weeks aged)
+# skilpadjie.jpg             # Skilpadjie (hidden — not on the Menu sheet)
 
-# Porterhouse is switched on above — its picture is already in this folder.
-#
 # Added a new product in the Google Sheet? Open the shop, press F12,
-# type  ojaaPhotoNames()  and Enter to see its filename.
+# type  ojaaPhotoNames()  and Enter to see the filename to use.
