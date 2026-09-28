@@ -507,6 +507,14 @@ fieldset{border:0;padding:0;margin:0}
   }
 }
 
+
+/* Footer — extra bottom room so the sticky order bar never covers it. */
+.site-foot{
+  max-width:1200px;margin:34px auto 0;padding:22px 18px calc(150px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--border);text-align:center;
+}
+.site-foot p{margin:0 0 6px;font-size:13px;color:var(--muted);line-height:1.5}
+.site-foot a{color:var(--gold);text-decoration:underline;text-underline-offset:3px}
 </style>
 
 <style id="v48-cut-quantity-layout">
@@ -920,7 +928,7 @@ button{
       <div class="hero-copy">
         <div class="hero-logo-wrap">
           <img class="hero-logo-image"
-               src="photos/ojaa-logo.jpg"
+               src="shop/photos/ojaa-logo.jpg" data-photo="ojaa-logo.jpg"
                alt="Ojaa’s Premium Meats"
                width="1536"
                height="513"
@@ -945,6 +953,11 @@ button{
       <div id="productGrid" class="product-grid"></div>
     </section>
   </main>
+
+  <footer class="site-foot">
+    <p><strong>Ojaa Meats &amp; More</strong> &middot; CJ Manufacturing CC &middot; Pietermaritzburg</p>
+    <p><a href="/privacy.html">Privacy policy</a></p>
+  </footer>
 
   <aside class="side-menu" id="sideMenu" aria-hidden="true" inert>
     <div class="menu-header"><div class="brand">Ojaa’s</div><button class="icon-btn" id="closeMenu" aria-label="Close menu">✕</button></div>
@@ -1514,10 +1527,13 @@ function pruneCartAgainstStock(){
   if(changed) persistCart(state.cart);
 }
 
-/* Every picture lives in the photos/ folder beside this page. Hardcoded
-   rather than discovered, because cards are drawn before photos.txt has
-   been fetched and a card must never paint with a broken image. */
-const BUILTIN_PHOTO_DIR = 'photos/';
+/* Where the built-in pictures live. Pictures may sit next to this page or
+   in a photos/ folder; this starts on the flat layout so the first paint
+   needs no lookup, then follows photos.txt if that turns up somewhere else
+   (see adoptPhotoDir below). A card must never paint a broken image. */
+/* This copy of the shop is served from the site root, while the pictures
+   live in shop/photos/ where they already are — so nothing had to move. */
+let BUILTIN_PHOTO_DIR = 'shop/photos/';
 const imageSrc = name => {
   const n = String(name || '');
   return (!n || n.includes('/')) ? n : BUILTIN_PHOTO_DIR + n;
@@ -1526,11 +1542,12 @@ const imageSrc = name => {
 /* ------------------------------------------------------------------ *
  * PHOTOS  —  changing one without touching this file
  *
- * Everything lives in the photos/ folder next to this page, alongside
- * photos.txt:
+ * The pictures sit next to this page, alongside photos.txt. Moving the
+ * whole lot into a photos/ folder later works too — keep photos.txt with
+ * them and the page follows:
  *
- *   1. Put the picture in photos/
- *   2. Add that filename on its own line in photos/photos.txt
+ *   1. Put the picture beside photos.txt
+ *   2. Add that filename on its own line in photos.txt
  *      (replacing a photo a product already has needs no step 2 at all —
  *       just overwrite the file with one of the same name)
  *
@@ -1546,8 +1563,8 @@ const imageSrc = name => {
  * ------------------------------------------------------------------ */
 /* Where photos.txt turned out to live; pictures are read from the same
    place. Both layouts work, so a misfiled photos.txt still functions. */
-const PHOTO_DIRS = ['photos/', '', 'assets/'];
-let PHOTO_DIR = 'photos/';
+const PHOTO_DIRS = ['shop/photos/', 'photos/', '', 'assets/'];
+let PHOTO_DIR = 'shop/photos/';
 
 function slugFor(name){
   return String(name||'').toLowerCase()
@@ -1585,6 +1602,19 @@ async function fetchPhotoManifest(){
     }catch{ /* try the next place */ }
   }
   return photoManifestText;
+}
+
+/* photos.txt is the marker for where the pictures live. If it was found in
+   a folder, the built-in pictures are in that folder as well, so re-point
+   them and redraw. Costs nothing in the usual case, and means moving the
+   whole set into photos/ needs no code change. */
+function adoptPhotoDir(){
+  if(PHOTO_DIR === BUILTIN_PHOTO_DIR) return;
+  BUILTIN_PHOTO_DIR = PHOTO_DIR;
+  const logo = document.querySelector('[data-photo]');
+  if(logo) logo.src = imageSrc(logo.dataset.photo);
+  products.forEach(p => { if(!p.photoUrl) repaintPhoto(p); });
+  console.info(`OJAA: photos are in ${PHOTO_DIR || 'the shop folder'}.`);
 }
 
 async function loadPhotoManifest(){
@@ -1666,6 +1696,7 @@ window.ojaaPhotoNames = ojaaPhotoNames;
 let photoManifest = {};
 async function applyPhotoOverrides(){
   photoManifest = await loadPhotoManifest();
+  adoptPhotoDir();
   let changed = false;
   for(const p of products){
     const url = photoManifest[String(p.id)];
