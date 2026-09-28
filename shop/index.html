@@ -1460,14 +1460,15 @@ const imageSrc = name => OJAA_IMAGE_DATA[name] || `assets/${name}`;
 /* ------------------------------------------------------------------ *
  * PHOTOS  —  changing one without touching this file
  *
- * Everything lives in the website repo's  assets/  folder:
+ * Everything lives beside photos.txt, which may sit either next to the
+ * shop page or in an assets/ folder — both are found automatically:
  *
- *   1. Put the picture in  assets/   e.g.  assets/rump.jpg
- *   2. Add that filename on its own line in  assets/photos.txt
+ *   1. Put the picture in the same folder as photos.txt
+ *   2. Add that filename on its own line in photos.txt
  *
  * Commit, and the shop uses it. The filename (without the extension)
  * must be the product's CODE, so renaming a product in the Google
- * Sheet can never break its photo. assets/photos.txt lists every code.
+ * Sheet can never break its photo. photos.txt itself lists every code.
  *
  * Remove the line again and the built-in photo comes back.
  *
@@ -1475,7 +1476,10 @@ const imageSrc = name => OJAA_IMAGE_DATA[name] || `assets/${name}`;
  * go hunting for files that may not exist, because every miss costs a
  * customer on mobile data a wasted download.
  * ------------------------------------------------------------------ */
-const PHOTO_DIR = 'assets/';
+/* Where photos.txt turned out to live; pictures are read from the same
+   place. Both layouts work, so a misfiled photos.txt still functions. */
+const PHOTO_DIRS = ['', 'assets/'];
+let PHOTO_DIR = '';
 
 function slugFor(name){
   return String(name||'').toLowerCase()
@@ -1493,29 +1497,36 @@ function photoKeysFor(p){
 }
 
 async function loadPhotoManifest(){
-  let text;
-  try{
-    const res = await fetch(PHOTO_DIR + 'photos.txt', { cache:'no-cache' });
-    if(!res.ok) return {};                 // no list yet — built-in photos stand
-    text = await res.text();
-  }catch{ return {}; }
+  let text = null;
+  for(const dir of PHOTO_DIRS){
+    try{
+      const res = await fetch(dir + 'photos.txt', { cache:'no-cache' });
+      if(!res.ok) continue;
+      text = await res.text();
+      PHOTO_DIR = dir;
+      break;
+    }catch{ /* try the next place */ }
+  }
+  if(text === null) return {};             // no list yet — built-in photos stand
 
   const files = text.split(/\r?\n/)
     .map(l => l.replace(/#.*$/,'').trim())             // drop comments, whole-line or trailing
     .filter(Boolean)
-    .map(l => l.replace(/^\.?\/?assets\//i,''));     // tolerate "assets/rump.jpg"
+    .map(l => l.replace(/^\.?\//,''));                // tolerate a leading ./
 
   const byKey = {};
   const orphans = [];
   for(const file of files){
-    const stem = file.replace(/\.[a-z0-9]+$/i,'').toLowerCase();
+    // a line may name a plain file, or spell out a path such as assets/rump.jpg
+    const bare = file.split('/').pop();
+    const stem = bare.replace(/\.[a-z0-9]+$/i,'').toLowerCase();
     if(!stem) continue;
     const owner = products.find(p => photoKeysFor(p).includes(stem));
-    if(owner) byKey[String(owner.id)] = PHOTO_DIR + file;
+    if(owner) byKey[String(owner.id)] = file.includes('/') ? file : PHOTO_DIR + file;
     else orphans.push(file);
   }
   if(orphans.length){
-    console.warn('OJAA: these lines in assets/photos.txt match no product — check the spelling against the codes below:\n  ' +
+    console.warn('OJAA: these lines in photos.txt match no product — check the spelling against the codes below:\n  ' +
       orphans.join('\n  '));
     ojaaPhotoNames();
   }
@@ -1557,10 +1568,11 @@ function ojaaPhotoNames(){
     const has = p.photoUrl ? '  (now: ' + p.photoUrl + ')' : (p.image ? '' : '  (NO PHOTO)');
     return '  ' + (p.id + '.jpg').padEnd(26) + p.name + has;
   });
+  const where = PHOTO_DIR ? 'the ' + PHOTO_DIR + ' folder' : 'the same folder as photos.txt';
   console.info(
     'Ojaa photos — to change one:\n' +
-    '  1. put the picture in the assets/ folder, named exactly as below\n' +
-    '  2. add that filename on its own line in assets/photos.txt\n\n' +
+    '  1. put the picture in ' + where + ', named exactly as below\n' +
+    '  2. add that filename on its own line in photos.txt\n\n' +
     rows.join('\n') + '\n\n(.png works too — just match the extension in photos.txt.)'
   );
   return products.map(p=>({ product:p.name, filename:PHOTO_DIR + p.id + '.jpg', current:photoUrlFor(p) ? (p.photoUrl||'built in') : 'none' }));
