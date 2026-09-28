@@ -17,18 +17,20 @@
 #
 # ---------------------------------------------------------------------
 
-# boerewors-spicy.jpg         # Spicy Boerewors
-# boerewors-sp.jpg            # Salt & Pepper Boerewors
-# biltong-original.jpg        # Original Biltong
-# biltong-sp.jpg              # Salt & Pepper Biltong
-# drywors-original.jpg        # Original Dry Wors
-# drywors-spicy.jpg           # Spicy Dry Wors
-# rump.jpg                    # 4 Week Aged Rump Steak
-# short-rib.jpg               # Spicy Short Rib
-# pork-rasher.jpg             # Honey & Pineapple Pork Rashers
-# skilpadjie.jpg              # Skilpadjie
+# boerewors-spicy.jpg         # Boerewors (Spicy)
+# boerewors-sp.jpg            # Boerewors (Salt & Pepper)
+# biltong-original.jpg        # Beef Biltong (Original)
+# biltong-sp.jpg              # Beef Biltong (Salt & Pepper)
+# drywors-original.jpg        # Dry Wors (Original)
+# drywors-spicy.jpg           # Dry Wors (Spicy)
+# rump.jpg                    # Wet Aged Rump Steak (4 weeks aged)
+# short-rib.jpg               # Short Rib (Spicy)
+# pork-rasher.jpg             # Pork Rashers
 # chilli-salt.jpg             # Chilli Braai Salt
 # pork-ribeye.jpg             # Pork Ribeye Steak
+porterhouse-steak.jpg         # Porterhouse Steak (4 weeks aged)
 
-# New products added in the Google Sheet get a code like sheet-15.
-# To find it: open the shop, press F12, type  ojaaPhotoNames()  and Enter.
+# Porterhouse is switched on above — its picture is already in this folder.
+#
+# Added a new product in the Google Sheet? Open the shop, press F12,
+# type  ojaaPhotoNames()  and Enter to see its filename.
