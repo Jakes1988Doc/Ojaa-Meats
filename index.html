@@ -1389,6 +1389,28 @@ function addNewSheetProducts(){
   if (added.length) console.info('OJAA: added straight from the Menu sheet →', added.join(' | '));
 }
 
+/* Put the cards in the same order as the rows in the Menu sheet, so moving
+   a row in Google Sheets moves the product on the page. A product with
+   variants takes the position of its first row. Anything with no sheet row
+   keeps its place at the end rather than jumping to the front. */
+function sortProductsBySheet(){
+  const pos = new Map();
+  SHEET_ROWS.forEach((row, i) => pos.set(String(row.id), i));
+
+  const rank = p => {
+    const rows = p.sheetByVariant ? Object.values(p.sheetByVariant)
+               : (p.sheet ? [p.sheet] : []);
+    const found = rows.map(r => pos.get(String(r.id)))
+                      .filter(v => v !== undefined);
+    return found.length ? Math.min(...found) : Number.MAX_SAFE_INTEGER;
+  };
+
+  products
+    .map((p, i) => ({ p, r: rank(p), i }))            // i keeps it stable
+    .sort((a, b) => a.r - b.r || a.i - b.i)
+    .forEach((x, n) => { products[n] = x.p; });
+}
+
 function bindSheetData(){
   const unmatched = [];
   CLAIMED = new Set();
@@ -1504,6 +1526,8 @@ async function loadLiveMenu(){
       if (!products.find(p => p.id === state.cart[k].productId)) delete state.cart[k];
     }
     persistCart(state.cart);
+
+    sortProductsBySheet();
 
     if(!SHOP_OPEN) showClosedBanner();
     pruneCartAgainstStock();
