@@ -1,15 +1,15 @@
 # Ojaa Meats & More — product photos
 #
-# EVERY PHOTO IS NOW AN ORDINARY FILE IN THIS photos/ FOLDER.
+# EVERY PHOTO IS AN ORDINARY FILE IN THIS photos/ FOLDER.
 #
 # TO CHANGE A PHOTO on a product that already has one:
-#   just upload a picture into this folder with the SAME filename and
-#   let it overwrite. You do not need to touch this file at all.
+#   just upload a picture into this folder with the SAME filename and let
+#   it overwrite. You do not need to touch this file at all.
 #     e.g. to change the rump photo, upload a new  rump.jpg
 #
-# THIS FILE IS ONLY NEEDED when a product has no photo yet — usually one
-# you have just added in the Google Sheet. Upload the picture, then delete
-# the # and the space at the start of that product line below.
+# THIS FILE IS ONLY NEEDED when a product has no photo of its own — usually
+# one you have just added in the Google Sheet. Upload the picture, then
+# delete the # and the space at the start of that product's line below.
 #
 # RULES
 #   - all lower case, .jpg or .png
@@ -20,17 +20,18 @@
 
 # boerewors-spicy.jpg         # Boerewors (Spicy)
 # boerewors-sp.jpg            # Boerewors (Salt & Pepper)
+boerewors-cheese.jpg          # Boerewors (Cheese)
 # biltong-original.jpg        # Beef Biltong (Original)
 # biltong-sp.jpg              # Beef Biltong (Salt & Pepper)
 # drywors-original.jpg        # Dry Wors (Original)
 # drywors-spicy.jpg           # Dry Wors (Spicy)
-# rump.jpg                    # Wet Aged Rump Steak (4 weeks aged)
 # short-rib.jpg               # Short Rib (Spicy)
 # pork-rasher.jpg             # Pork Rashers
+# rump.jpg                    # Rump Steak (4 weeks wet aged)
 # chilli-salt.jpg             # Chilli Braai Salt
 # pork-ribeye.jpg             # Pork Ribeye Steak
-porterhouse-steak.jpg         # Porterhouse Steak (4 weeks aged)
-# skilpadjie.jpg             # Skilpadjie (hidden — not on the Menu sheet)
+porterhouse-steak.jpg         # Porterhouse Steak (4 weeks wet aged)
+# skilpadjie.jpg              # Skilpadjie (hidden — not on the Menu sheet)
 
 # Added a new product in the Google Sheet? Open the shop, press F12,
 # type  ojaaPhotoNames()  and Enter to see the filename to use.
