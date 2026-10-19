@@ -1081,6 +1081,11 @@ button{
   <script>
 
 const products = window.OJAA_PRODUCTS;
+/* An untouched copy of the catalogue. The menu is applied twice on a visit —
+   once from the cache, once from the live sheet — and each pass rebuilds the
+   product list from this, so the second pass can never inherit decisions the
+   first one made. */
+const CATALOGUE = products.map(p => ({ ...p }));
 
 /* ==========================================================
    LIVE BACKEND WIRING
@@ -1117,7 +1122,8 @@ const SHEET_MATCH = {};
 const VARIANT_WORDS = { 'Lean':['lean'], 'Fatty':['fat'] };
 
 let SHEET_ROWS = [];
-let MENU_READY = false;   // true once /api/menu has answered
+let MENU_READY = false;   // true once we have a menu from anywhere
+let MENU_LIVE  = false;   // true only once the SERVER itself has answered
 let SHOP_OPEN = true;
 
 function normTokens(t){
@@ -1502,32 +1508,83 @@ function stockFor(p, variant){
   return { inStock:r.inStock, available:r.available };
 }
 
+/* ------------------------------------------------------------------ *
+ * LAST-KNOWN MENU
+ *
+ * Render's free tier sleeps, and waking it takes up to a minute. Rather
+ * than show an empty shop for that minute, the last menu we were given is
+ * kept in the visitor's own browser and drawn immediately.
+ *
+ * Two deliberate limits, because stale prices are worse than a slow page:
+ *   - anything older than 12 hours is thrown away
+ *   - checkout stays locked until the SERVER has confirmed prices, so
+ *     nobody can be charged a price they were not shown
+ * ------------------------------------------------------------------ */
+const MENU_CACHE_KEY = 'ojaaMenuV1';
+const MENU_CACHE_MAX_AGE = 12 * 60 * 60 * 1000;
+
+function saveMenuCache(data){
+  try { localStorage.setItem(MENU_CACHE_KEY, JSON.stringify({ at: Date.now(), data })); }
+  catch { /* private browsing, full storage — the shop works without it */ }
+}
+function loadMenuCache(){
+  try {
+    const raw = localStorage.getItem(MENU_CACHE_KEY);
+    if(!raw) return null;
+    const saved = JSON.parse(raw);
+    if(!saved || !saved.data || !Array.isArray(saved.data.items) || !saved.data.items.length) return null;
+    if(!saved.at || Date.now() - saved.at > MENU_CACHE_MAX_AGE) return null;
+    return saved.data;
+  } catch { return null; }
+}
+
+/* Everything that turns a menu payload into cards on the page. Shared by
+   the cached pass and the live pass so the two can never drift apart. */
+function applyMenuData(data){
+  products.length = 0;
+  CATALOGUE.forEach(p => products.push({ ...p }));
+
+  SHEET_ROWS = data.items || [];
+  SHOP_OPEN  = data.open !== false;
+  MENU_READY = true;
+
+  bindSheetData();
+  addNewSheetProducts();
+
+  // A product with no row in the Menu sheet has been taken off the range,
+  // so remove its card entirely rather than leaving a dead "call to order".
+  const dropped = [];
+  for (let i = products.length - 1; i >= 0; i--) {
+    if (products[i].unavailable) { dropped.push(products[i].name); products.splice(i, 1); }
+  }
+  if (dropped.length) console.info('OJAA: not in the Menu sheet, hidden \u2192', dropped.join(' | '));
+
+  // anything removed also comes out of a saved basket
+  for (const k of Object.keys(state.cart)) {
+    if (!products.find(p => p.id === state.cart[k].productId)) delete state.cart[k];
+  }
+  persistCart(state.cart);
+
+  sortProductsBySheet();
+}
+
+/* Draw the shop from the last known menu. Never sets MENU_LIVE. */
+function applyCachedMenu(){
+  const data = loadMenuCache();
+  if(!data) return false;
+  applyMenuData(data);
+  console.info('OJAA: showing the last known menu while the server wakes.');
+  return true;
+}
+
 async function loadLiveMenu(){
   try{
     const res = await fetch(OJAA_API + '/api/menu', { cache:'no-store' });
     if(!res.ok) throw new Error('menu ' + res.status);
     const data = await res.json();
-    SHEET_ROWS = data.items || [];
-    SHOP_OPEN = data.open !== false;
-    MENU_READY = true;
-    bindSheetData();
-    addNewSheetProducts();
-
-    // A product with no row in the Menu sheet has been taken off the range,
-    // so remove its card entirely rather than leaving a dead "call to order".
-    const dropped = [];
-    for (let i = products.length - 1; i >= 0; i--) {
-      if (products[i].unavailable) { dropped.push(products[i].name); products.splice(i, 1); }
-    }
-    if (dropped.length) console.info('OJAA: not in the Menu sheet, hidden \u2192', dropped.join(' | '));
-
-    // anything removed also comes out of a saved basket
-    for (const k of Object.keys(state.cart)) {
-      if (!products.find(p => p.id === state.cart[k].productId)) delete state.cart[k];
-    }
-    persistCart(state.cart);
-
-    sortProductsBySheet();
+    applyMenuData(data);
+    MENU_LIVE = true;
+    saveMenuCache(data);
 
     if(!SHOP_OPEN) showClosedBanner();
     pruneCartAgainstStock();
@@ -1552,6 +1609,8 @@ function showMenuError(){
     const grid = document.querySelector('#productGrid');
     grid.parentNode.insertBefore(el, grid);
   }
+  // Marked, so the "checking stock" tidy-up does not wipe this warning.
+  el.dataset.kind = 'error';
   el.style.cssText = 'margin:0 0 14px;padding:11px 13px;border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--gold);text-align:center';
   el.innerHTML = 'We could not check today\'s stock. Prices shown may be out of date &mdash; '+
                  'please <a style="color:var(--gold)" href="tel:+27828082423">call 082 808 2423</a> to confirm.';
@@ -1973,8 +2032,16 @@ function updateCartUI(){
   sticky.classList.toggle('is-empty',count===0);
   document.body.classList.toggle('has-cart',count>0);
 
+  // Browsing on a cached menu is fine; paying on one is not. Until the
+  // server has confirmed today's prices, checkout is locked and says why.
   const checkout=document.querySelector('#checkoutBtn');
-  checkout.disabled=count===0;
+  if(!MENU_LIVE){
+    checkout.disabled = true;
+    checkout.textContent = 'CONFIRMING TODAY\u2019S PRICES\u2026';
+  } else {
+    checkout.disabled = count===0;
+    checkout.textContent = 'CHECKOUT \u2192';
+  }
 }
 function renderCart(){
   const box=document.querySelector('#cartItems');
@@ -2212,6 +2279,7 @@ document.addEventListener('keydown',e=>{
 /* Render straight away so the grid is never blank — Render's free tier can take
    up to a minute to wake, and an empty page looks broken. Prices and stock are
    corrected the moment the live menu arrives. */
+applyCachedMenu();        // last known menu first, so the shop is never blank
 renderProducts();
 updateCartUI();
 applyPhotoOverrides();
@@ -2230,11 +2298,13 @@ function showStockNotice(on){
       el=document.createElement('p');
       el.id='stockNotice';
       el.style.cssText='margin:0 0 14px;font-size:13px;color:var(--muted);text-align:center';
-      el.textContent='Checking today\u2019s stock\u2026';
+      el.textContent = MENU_READY
+        ? 'Confirming today\u2019s prices and stock\u2026'
+        : 'Checking today\u2019s stock\u2026';
       const grid=document.querySelector('#productGrid');
       grid.parentNode.insertBefore(el, grid);
     }
-  } else if(el){
+  } else if(el && el.dataset.kind !== 'error'){
     el.remove();
   }
 }
