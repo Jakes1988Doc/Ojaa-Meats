@@ -534,6 +534,17 @@ fieldset{border:0;padding:0;margin:0}
 }
 .site-foot p{margin:0 0 6px;font-size:13px;color:var(--muted);line-height:1.5}
 .site-foot a{color:var(--gold);text-decoration:underline;text-underline-offset:3px}
+
+/* Pre-order tickbox - a big tap target, and clearly not just another field. */
+.preorder-row{
+  display:flex;gap:12px;align-items:flex-start;
+  background:var(--field);border:1px solid var(--border);border-radius:9px;
+  padding:14px;margin:4px 0 2px;cursor:pointer;
+}
+.preorder-row input{width:22px;height:22px;flex:0 0 22px;margin:1px 0 0;accent-color:var(--gold)}
+.preorder-row strong{display:block;color:var(--gold2);font-size:15px}
+.preorder-row small{display:block;color:var(--muted);font-size:13px;line-height:1.45;margin-top:3px}
+.preorder-row.is-on{border-color:var(--gold);background:rgba(227,173,50,.10)}
 </style>
 
 <style id="v48-cut-quantity-layout">
@@ -1050,7 +1061,15 @@ button{
         <label>Delivery address *<textarea name="address" rows="3" placeholder="Street address, suburb"></textarea></label>
       </div>
 
-      <label>Order notes (optional)<textarea name="notes" rows="3" placeholder="Preferred collection time, special requests"></textarea></label>
+      <label class="preorder-row">
+        <input type="checkbox" name="preorder" id="preorderBox">
+        <span>
+          <strong>This is a Christmas pre-order</strong>
+          <small>For collection in December. Nothing is taken from today&rsquo;s stock.</small>
+        </span>
+      </label>
+
+      <label id="notesLabel">Order notes (optional)<textarea name="notes" id="notesField" rows="3" placeholder="Preferred collection time, special requests"></textarea></label>
 
       <div class="checkout-summary">
         <span>Total</span><strong id="checkoutTotal">R0</strong>
@@ -2187,6 +2206,7 @@ document.querySelector('#checkoutForm').onsubmit=async e=>{
     deliveryType: customer.fulfilment==='delivery' ? 'Delivery' : 'Collection - Workshop',
     deliveryAddress: customer.address || '',
     notes: customer.notes || '',
+    preorder: !!customer.preorder,
     items: apiItems
   };
 
@@ -2308,6 +2328,34 @@ function showStockNotice(on){
     el.remove();
   }
 }
+
+/* The pre-order tickbox. Ticking it relabels the notes field to ask for a
+   collection date — the date is not a separate field, so this is the only
+   prompt the customer gets for it. */
+(function wirePreorder(){
+  const box   = document.querySelector('#preorderBox');
+  const field = document.querySelector('#notesField');
+  const label = document.querySelector('#notesLabel');
+  if(!box || !field || !label) return;
+
+  const NORMAL = { text:'Order notes (optional)',
+                   hint:'Preferred collection time, special requests' };
+  const PRE    = { text:'Collection date and notes *',
+                   hint:'Which day in December are you collecting? Plus any special requests.' };
+
+  function sync(){
+    const on = box.checked;
+    const row = box.closest('.preorder-row');
+    if(row) row.classList.toggle('is-on', on);
+    const copy = on ? PRE : NORMAL;
+    // keep the textarea, replace only the label's own text node
+    label.childNodes[0].nodeValue = copy.text;
+    field.placeholder = copy.hint;
+    field.required = on;
+  }
+  box.addEventListener('change', sync);
+  sync();
+})();
 
 /* Keep an open tab in step with the sheet: refresh prices and stock when the
    customer comes back to the page, and quietly every few minutes. */
