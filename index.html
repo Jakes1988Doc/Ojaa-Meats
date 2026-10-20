@@ -545,6 +545,30 @@ fieldset{border:0;padding:0;margin:0}
 .preorder-row strong{display:block;color:var(--gold2);font-size:15px}
 .preorder-row small{display:block;color:var(--muted);font-size:13px;line-height:1.45;margin-top:3px}
 .preorder-row.is-on{border-color:var(--gold);background:rgba(227,173,50,.10)}
+
+/* Pre-order mode - the toggle, and the bar that stays visible while it is on */
+.preorder-toggle{
+  display:flex;gap:14px;align-items:center;flex-wrap:wrap;
+  background:var(--card);border:1px solid var(--border);border-radius:11px;
+  padding:14px 16px;margin:0 0 14px;
+}
+.preorder-toggle-copy{flex:1 1 220px;min-width:0}
+.preorder-toggle strong{display:block;color:var(--gold2);font-size:16px}
+.preorder-toggle small{display:block;color:var(--muted);font-size:13px;line-height:1.45;margin-top:3px}
+.preorder-switch{
+  flex:0 0 auto;min-height:48px;padding:0 20px;border-radius:8px;
+  border:1px solid var(--gold);background:transparent;color:var(--gold);
+  font-weight:800;font-size:14px;letter-spacing:.02em;cursor:pointer;
+}
+.preorder-switch[aria-pressed="true"]{background:var(--gold);color:#111}
+body.preorder-on .preorder-toggle{border-color:var(--gold);background:rgba(227,173,50,.10)}
+
+#preorderBar{
+  position:sticky;top:0;z-index:60;
+  background:var(--gold);color:#111;font-weight:800;
+  padding:11px 16px;text-align:center;font-size:14px;line-height:1.35;
+}
+#preorderBar small{display:block;font-weight:600;font-size:12.5px;opacity:.85}
 </style>
 
 <style id="v48-cut-quantity-layout">
@@ -973,6 +997,16 @@ button{
     </section>
 
     <section class="catalog" id="products">
+      <div id="preorderToggle" class="preorder-toggle" hidden>
+        <div class="preorder-toggle-copy">
+          <strong>Ordering for Christmas?</strong>
+          <small>Switch to pre-order and the whole menu is available, whatever is on the shelf today.</small>
+        </div>
+        <button type="button" id="preorderSwitch" class="preorder-switch" aria-pressed="false">
+          SWITCH TO PRE-ORDER
+        </button>
+      </div>
+
       <nav class="filters" aria-label="Product categories">
         <button class="filter active" data-category="all">ALL</button>
         <button class="filter" data-category="biltong">BILTONG & DRY WORS</button>
@@ -1143,6 +1177,25 @@ const VARIANT_WORDS = { 'Lean':['lean'], 'Fatty':['fat'] };
 let SHEET_ROWS = [];
 let MENU_READY = false;   // true once we have a menu from anywhere
 let MENU_LIVE  = false;   // true only once the SERVER itself has answered
+
+/* ------------------------------------------------------------------ *
+ * PRE-ORDER MODE
+ *
+ * Christmas pre-orders are for stock not yet made, so the shelf must not
+ * limit them. With this on, every product on the menu can be ordered in
+ * any quantity and nothing shows as sold out.
+ *
+ * The toggle only appears during the season below. Change these two
+ * dates next year; outside them the shop behaves normally and customers
+ * never see it.
+ * ------------------------------------------------------------------ */
+const PREORDER_SEASON = { from: '2026-10-01', to: '2026-12-24' };
+let PREORDER_MODE = false;
+
+function preorderSeasonOpen(){
+  const today = new Date().toISOString().slice(0, 10);
+  return today >= PREORDER_SEASON.from && today <= PREORDER_SEASON.to;
+}
 let SHOP_OPEN = true;
 
 function normTokens(t){
@@ -1522,6 +1575,10 @@ function stockFor(p, variant){
   // Before the live menu arrives we know nothing — assume available rather
   // than flashing SOLD OUT across the whole shop during a cold start.
   if(!MENU_READY) return { inStock:true, available:null, unknown:true };
+  // A pre-order is for stock we have not made yet, so today's shelf says
+  // nothing about it. available:null also switches off every quantity cap
+  // and the "Only N left" note.
+  if(PREORDER_MODE) return { inStock:true, available:null };
   const r = sheetFor(p, variant);
   if(!r) return { inStock:false, available:0 };
   return { inStock:r.inStock, available:r.available };
@@ -2206,7 +2263,7 @@ document.querySelector('#checkoutForm').onsubmit=async e=>{
     deliveryType: customer.fulfilment==='delivery' ? 'Delivery' : 'Collection - Workshop',
     deliveryAddress: customer.address || '',
     notes: customer.notes || '',
-    preorder: !!customer.preorder,
+    preorder: !!customer.preorder || PREORDER_MODE,
     items: apiItems
   };
 
@@ -2329,6 +2386,72 @@ function showStockNotice(on){
   }
 }
 
+/* ---- pre-order mode: the toggle, the bar, and keeping it in step ---- */
+const PREORDER_KEY = 'ojaaPreorderMode';
+
+function showPreorderBar(on){
+  let bar = document.querySelector('#preorderBar');
+  if(on){
+    if(!bar){
+      bar = document.createElement('div');
+      bar.id = 'preorderBar';
+      bar.innerHTML = 'CHRISTMAS PRE-ORDER<small>For December collection &mdash; not for this week</small>';
+      document.body.insertBefore(bar, document.body.firstChild);
+    }
+  } else if(bar){
+    bar.remove();
+  }
+}
+
+function setPreorderMode(on, opts){
+  const quiet = opts && opts.quiet;
+  PREORDER_MODE = !!on;
+  try { sessionStorage.setItem(PREORDER_KEY, PREORDER_MODE ? '1' : '0'); } catch { /* not essential */ }
+
+  document.body.classList.toggle('preorder-on', PREORDER_MODE);
+  showPreorderBar(PREORDER_MODE);
+
+  const sw = document.querySelector('#preorderSwitch');
+  if(sw){
+    sw.setAttribute('aria-pressed', String(PREORDER_MODE));
+    sw.textContent = PREORDER_MODE ? 'PRE-ORDERING \u2014 TAP TO STOP' : 'SWITCH TO PRE-ORDER';
+  }
+
+  const box = document.querySelector('#preorderBox');
+  if(box && box.checked !== PREORDER_MODE){
+    box.checked = PREORDER_MODE;
+    box.dispatchEvent(new Event('change'));
+  }
+
+  if(!quiet){
+    // Coming out of pre-order mode, anything in the basket has to face
+    // today's stock again.
+    if(!PREORDER_MODE) pruneCartAgainstStock();
+    renderProducts();
+    updateCartUI();
+    applyPhotoOverrides();
+  }
+}
+
+(function wirePreorderMode(){
+  const wrap = document.querySelector('#preorderToggle');
+  const sw   = document.querySelector('#preorderSwitch');
+  if(!wrap || !sw) return;
+
+  if(!preorderSeasonOpen()){
+    wrap.remove();                      // out of season, nobody sees it
+    try { sessionStorage.removeItem(PREORDER_KEY); } catch {}
+    return;
+  }
+  wrap.hidden = false;
+
+  let saved = '0';
+  try { saved = sessionStorage.getItem(PREORDER_KEY) || '0'; } catch {}
+  setPreorderMode(saved === '1', { quiet: true });
+
+  sw.addEventListener('click', () => setPreorderMode(!PREORDER_MODE));
+})();
+
 /* The pre-order tickbox. Ticking it relabels the notes field to ask for a
    collection date — the date is not a separate field, so this is the only
    prompt the customer gets for it. */
@@ -2353,7 +2476,11 @@ function showStockNotice(on){
     field.placeholder = copy.hint;
     field.required = on;
   }
-  box.addEventListener('change', sync);
+  box.addEventListener('change', () => {
+    sync();
+    // One source of truth: ticking the box at checkout turns the mode on.
+    if(box.checked !== PREORDER_MODE) setPreorderMode(box.checked);
+  });
   sync();
 })();
 
