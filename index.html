@@ -1189,6 +1189,43 @@ let MENU_LIVE  = false;   // true only once the SERVER itself has answered
  * dates next year; outside them the shop behaves normally and customers
  * never see it.
  * ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ * WAITING MESSAGES
+ *
+ * The ordering server sleeps and can take up to a minute to wake. A
+ * single frozen label reads as broken, so the wait says something while
+ * it happens. It does not make anything faster; it stops people giving
+ * up on a page they think has died.
+ * ------------------------------------------------------------------ */
+let stopStockLines = () => {};
+
+const SHOP_WAIT_LINES = [
+  'Firing up the braai\u2026',
+  'Grinding the wors\u2026',
+  'Hanging the biltong\u2026',
+  'Spicing the short ribs\u2026',
+  'Sharpening the knives\u2026',
+  'Counting what\u2019s left in the cold room\u2026',
+];
+
+const ORDER_WAIT_LINES = [
+  'SENDING YOUR ORDER\u2026',
+  'WRITING IT UP\u2026',
+  'CHECKING THE COLD ROOM\u2026',
+  'ALMOST THERE\u2026',
+];
+
+/* Swaps the text of an element on a timer. Returns a stop function;
+   callers must call it, or the timer outlives the wait. */
+function rotateLines(el, lines, periodMs){
+  if(!el || !lines.length) return () => {};
+  let i = 0;
+  const tick = () => { el.textContent = lines[i % lines.length]; i++; };
+  tick();
+  const id = setInterval(tick, periodMs || 2400);
+  return () => clearInterval(id);
+}
+
 const PREORDER_SEASON = { from: '2026-10-01', to: '2026-12-24' };
 let PREORDER_MODE = false;
 
@@ -1642,6 +1679,28 @@ function applyMenuData(data){
   persistCart(state.cart);
 
   sortProductsBySheet();
+}
+
+/* The committed menu snapshot (menu.json, served by GitHub Pages).
+   Used only by a visitor with no cached menu — a first-timer, or someone
+   whose cache has expired. Without it they would see the catalogue baked
+   into this file, which is missing products added through the sheet
+   (cheese wors, porterhouse) and still lists ones that have gone.
+
+   It carries no stock: a stale SOLD OUT costs a sale, and the live menu
+   fills stock in a moment later. Checkout stays locked until then. */
+async function loadSeedMenu(){
+  if(MENU_READY) return false;                 // the cache already served
+  try{
+    const res = await fetch('menu.json', { cache:'no-cache' });
+    if(!res.ok) return false;
+    const data = await res.json();
+    if(MENU_READY || MENU_LIVE) return false;  // something better arrived meanwhile
+    if(!data || !Array.isArray(data.items) || !data.items.length) return false;
+    applyMenuData(data);
+    console.info('OJAA: drew the shop from menu.json while the server wakes.');
+    return true;
+  }catch{ return false; }
 }
 
 /* Draw the shop from the last known menu. Never sets MENU_LIVE. */
@@ -2220,7 +2279,26 @@ document.querySelector('#checkoutForm').onsubmit=async e=>{
 
   const submit=e.target.querySelector('button[type=submit]');
   submit.disabled=true;
-  submit.textContent='PLACING ORDER…';
+
+  // The server may be asleep. Keep the button talking, and after a few
+  // seconds say why, so nobody decides it has crashed and walks away
+  // with a full basket.
+  const stopOrderLines = rotateLines(submit, ORDER_WAIT_LINES, 2600);
+  let slowNote = null;
+  const slowTimer = setTimeout(() => {
+    slowNote = document.createElement('p');
+    slowNote.id = 'orderSlowNote';
+    slowNote.style.cssText = 'margin:10px 0 0;font-size:13.5px;line-height:1.5;color:var(--gold);text-align:center';
+    slowNote.textContent = 'Our shop computer wakes up slowly first thing \u2014 this can take up to a minute. Your order is safe, please don\u2019t close the page.';
+    submit.parentNode.insertBefore(slowNote, submit.nextSibling);
+  }, 6000);
+
+  const endWaiting = () => {
+    stopOrderLines();
+    clearTimeout(slowTimer);
+    if(slowNote){ slowNote.remove(); slowNote = null; }
+    submit.textContent = 'PLACE ORDER \u2192';
+  };
 
   const fd=new FormData(e.target);
   const customer=Object.fromEntries(fd);
@@ -2251,7 +2329,7 @@ document.querySelector('#checkoutForm').onsubmit=async e=>{
 
   if(unresolved || !apiItems.length){
     showCheckoutError('Something in your order is no longer available. Please review your basket.');
-    submit.disabled=false; submit.textContent='PLACE ORDER →';
+    endWaiting(); submit.disabled=false;
     return;
   }
 
@@ -2279,7 +2357,7 @@ document.querySelector('#checkoutForm').onsubmit=async e=>{
     showCheckoutError(err.message==='Failed to fetch'
       ? 'We could not reach the shop. Check your connection, or call 082 617 9993.'
       : err.message);
-    submit.disabled=false; submit.textContent='PLACE ORDER →';
+    endWaiting(); submit.disabled=false;
     return;
   }
 
@@ -2289,8 +2367,8 @@ document.querySelector('#checkoutForm').onsubmit=async e=>{
   e.target.reset();
   document.querySelector('#addressWrap').hidden=true;
   document.querySelector('[name=address]').required=false;
+  endWaiting();
   submit.disabled=false;
-  submit.textContent='PLACE ORDER →';
   openPanel('#confirmationPanel');
 };
 
@@ -2361,6 +2439,16 @@ renderProducts();
 updateCartUI();
 applyPhotoOverrides();
 showStockNotice(true);
+
+// No cache? Fall back to the committed snapshot, which is still far closer
+// to the truth than the catalogue hard-coded in this file.
+loadSeedMenu().then(used=>{
+  if(!used) return;
+  renderProducts();
+  updateCartUI();
+  applyPhotoOverrides();
+});
+
 loadLiveMenu().then(()=>{
   showStockNotice(false);
   renderProducts();
@@ -2375,13 +2463,14 @@ function showStockNotice(on){
       el=document.createElement('p');
       el.id='stockNotice';
       el.style.cssText='margin:0 0 14px;font-size:13px;color:var(--muted);text-align:center';
-      el.textContent = MENU_READY
-        ? 'Confirming today\u2019s prices and stock\u2026'
-        : 'Checking today\u2019s stock\u2026';
+      // Screen readers should hear this settle, not every rotation.
+      el.setAttribute('aria-live', 'off');
+      stopStockLines = rotateLines(el, SHOP_WAIT_LINES);
       const grid=document.querySelector('#productGrid');
       grid.parentNode.insertBefore(el, grid);
     }
   } else if(el && el.dataset.kind !== 'error'){
+    stopStockLines();
     el.remove();
   }
 }
