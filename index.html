@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="booting">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
@@ -31,6 +31,47 @@
   --bg:#0B0907;--card:#15100C;--field:#211811;--gold:#E3AD32;--gold2:#F2C24E;
   --cream:#F6EFE4;--muted:#BDAF9C;--border:#4A3521;--red:#A82020;--neutral:#A7A098;
   --header-h:64px;
+}
+
+/* ------------------------------------------------------------------ *
+ * BOOT CURTAIN
+ * Holds the shop back until the server has confirmed today's prices
+ * and stock. It is in the HTML, not built by script, so it covers the
+ * page on the very first paint instead of flashing a stale shop first.
+ * ------------------------------------------------------------------ */
+html.booting, html.booting body{overflow:hidden}
+#bootCurtain{
+  position:fixed;inset:0;z-index:9999;background:var(--bg);
+  display:flex;align-items:center;justify-content:center;
+  padding:24px;text-align:center;
+  opacity:1;transition:opacity .45s ease;
+}
+#bootCurtain.gone{opacity:0;pointer-events:none}
+html:not(.booting) #bootCurtain{display:none}
+.curtain-inner{max-width:420px;width:100%}
+.curtain-logo{width:min(260px,72vw);height:auto;margin:0 auto 26px;display:block}
+.curtain-spinner{
+  width:34px;height:34px;margin:0 auto 20px;border-radius:50%;
+  border:3px solid var(--border);border-top-color:var(--gold);
+  animation:curtainSpin .9s linear infinite;
+}
+@keyframes curtainSpin{to{transform:rotate(360deg)}}
+#curtainLine{
+  margin:0 0 8px;font-size:17px;font-weight:700;color:var(--gold2);
+  min-height:1.5em;
+}
+#curtainSub{margin:0;font-size:13.5px;color:var(--muted);line-height:1.5}
+#curtainSlow{margin:26px 0 0;border-top:1px solid var(--border);padding-top:20px}
+#curtainSlow p{margin:0 0 14px;font-size:13.5px;color:var(--muted);line-height:1.5}
+#curtainEnter{
+  -webkit-appearance:none;appearance:none;cursor:pointer;
+  background:transparent;color:var(--gold);border:1px solid var(--gold);
+  border-radius:9px;padding:13px 20px;font:inherit;font-weight:700;font-size:14px;
+  min-height:48px;width:100%;
+}
+@media (prefers-reduced-motion:reduce){
+  .curtain-spinner{animation-duration:2.4s}
+  #bootCurtain{transition:none}
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;background:var(--bg)}
@@ -971,6 +1012,22 @@ button{
 
 </head>
 <body>
+  <div id="bootCurtain" role="status" aria-live="polite">
+    <div class="curtain-inner">
+      <img class="curtain-logo" src="shop/photos/ojaa-logo.jpg"
+           alt="Ojaa’s Premium Meats" width="1536" height="513"
+           fetchpriority="high" decoding="async" />
+      <div class="curtain-spinner" aria-hidden="true"></div>
+      <p id="curtainLine">Firing up the braai…</p>
+      <p id="curtainSub">Checking today’s prices and what’s in the cold room.</p>
+      <div id="curtainSlow" hidden>
+        <p>Our ordering system is waking up — this can take up to a minute
+           the first time someone visits today.</p>
+        <button type="button" id="curtainEnter">Browse the menu while it wakes</button>
+      </div>
+    </div>
+  </div>
+  <noscript><style>html.booting,html.booting body{overflow:auto}#bootCurtain{display:none}</style></noscript>
   <header class="topbar">
     <button class="icon-btn" id="menuBtn" aria-label="Open menu" aria-controls="sideMenu" aria-expanded="false">☰</button>
     <div class="topbar-spacer" aria-hidden="true"></div>
@@ -1224,6 +1281,59 @@ function rotateLines(el, lines, periodMs){
   tick();
   const id = setInterval(tick, periodMs || 2400);
   return () => clearInterval(id);
+}
+
+/* ------------------------------------------------------------------ *
+ * BOOT CURTAIN CONTROL
+ *
+ * The curtain is up from the first paint. It comes down when the server
+ * has confirmed prices and stock — or, if that takes too long, on the
+ * customer's say-so, so nobody is ever trapped behind it.
+ * ------------------------------------------------------------------ */
+const CURTAIN_SLOW_MS = 12000;   // admit it is slow, offer a way past
+const CURTAIN_HARD_MS = 45000;   // never hold the page longer than this
+let CURTAIN_START = Date.now();
+let curtainSlowTimer = null;
+let curtainHardTimer = null;
+let stopCurtainLines = () => {};
+let curtainDown = false;
+
+function startCurtain(){
+  const el = document.querySelector('#bootCurtain');
+  if(!el){ document.documentElement.classList.remove('booting'); return; }
+  CURTAIN_START = Date.now();
+  stopCurtainLines = rotateLines(document.querySelector('#curtainLine'), SHOP_WAIT_LINES);
+
+  curtainSlowTimer = setTimeout(()=>{
+    const slow = document.querySelector('#curtainSlow');
+    if(slow) slow.hidden = false;
+  }, CURTAIN_SLOW_MS);
+
+  curtainHardTimer = setTimeout(()=> dismissCurtain('timeout'), CURTAIN_HARD_MS);
+
+  const btn = document.querySelector('#curtainEnter');
+  if(btn) btn.addEventListener('click', ()=> dismissCurtain('user'));
+}
+
+/* reason: 'live' (confirmed), 'failed', 'timeout', 'user' */
+function dismissCurtain(reason){
+  clearTimeout(curtainSlowTimer);
+  clearTimeout(curtainHardTimer);
+  if(curtainDown) return;
+  curtainDown = true;
+  stopCurtainLines();
+  document.documentElement.classList.remove('booting');
+
+  // Anyone let through before the server answered must see why checkout
+  // is locked, and have a number to call.
+  if(reason === 'timeout' || reason === 'user') showMenuError();
+
+  const el = document.querySelector('#bootCurtain');
+  if(!el) return;
+  // A warm server answers almost instantly — don't linger on a splash.
+  if(reason === 'live' && Date.now() - CURTAIN_START < 500){ el.remove(); return; }
+  el.classList.add('gone');
+  setTimeout(()=> el.remove(), 500);
 }
 
 const PREORDER_SEASON = { from: '2026-10-01', to: '2026-12-24' };
@@ -1712,9 +1822,14 @@ function applyCachedMenu(){
   return true;
 }
 
+/* Returns true only if the SERVER answered. A sleeping Render instance can
+   take most of a minute; a request still open after 60s is not coming back
+   in a way worth waiting for, so it is abandoned and the warning shown. */
 async function loadLiveMenu(){
+  const ctl = new AbortController();
+  const bail = setTimeout(()=> ctl.abort(), 60000);
   try{
-    const res = await fetch(OJAA_API + '/api/menu', { cache:'no-store' });
+    const res = await fetch(OJAA_API + '/api/menu', { cache:'no-store', signal: ctl.signal });
     if(!res.ok) throw new Error('menu ' + res.status);
     const data = await res.json();
     applyMenuData(data);
@@ -1723,9 +1838,13 @@ async function loadLiveMenu(){
 
     if(!SHOP_OPEN) showClosedBanner();
     pruneCartAgainstStock();
+    return true;
   }catch(err){
-    console.error('OJAA: live menu unavailable —', err.message);
+    console.error('OJAA: live menu unavailable —', err.name === 'AbortError' ? 'timed out' : err.message);
     showMenuError();
+    return false;
+  }finally{
+    clearTimeout(bail);
   }
 }
 
@@ -1746,6 +1865,8 @@ function showMenuError(){
   }
   // Marked, so the "checking stock" tidy-up does not wipe this warning.
   el.dataset.kind = 'error';
+  if(el.dataset.shown === '1') return;
+  el.dataset.shown = '1';
   el.style.cssText = 'margin:0 0 14px;padding:11px 13px;border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--gold);text-align:center';
   el.innerHTML = 'We could not check today\'s stock. Prices shown may be out of date &mdash; '+
                  'please <a style="color:var(--gold)" href="tel:+27828082423">call 082 808 2423</a> to confirm.';
@@ -2449,12 +2570,23 @@ loadSeedMenu().then(used=>{
   applyPhotoOverrides();
 });
 
-loadLiveMenu().then(()=>{
-  showStockNotice(false);
+startCurtain();           // nothing is shoppable until the server confirms
+
+loadLiveMenu().then(ok=>{
+  if(ok) clearStockNotice(); else showStockNotice(false);
+  dismissCurtain(ok ? 'live' : 'failed');
   renderProducts();
   updateCartUI();
   applyPhotoOverrides();   // products that arrived straight from the sheet
 });
+
+/* Clears the waiting line AND any warning — used once the server has
+   actually answered, when neither is true any more. */
+function clearStockNotice(){
+  stopStockLines();
+  const el = document.querySelector('#stockNotice');
+  if(el) el.remove();
+}
 
 function showStockNotice(on){
   let el=document.querySelector('#stockNotice');
