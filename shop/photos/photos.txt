@@ -20,6 +20,7 @@
 
 # boerewors-spicy.jpg         # Boerewors (Spicy)
 # boerewors-sp.jpg            # Boerewors (Salt & Pepper)
+boerewors-farm-style.jpg      # Boerewors (Farm Style)
 boerewors-cheese.jpg          # Boerewors (Cheese)
 # biltong-original.jpg        # Beef Biltong (Original)
 # biltong-sp.jpg              # Beef Biltong (Salt & Pepper)
