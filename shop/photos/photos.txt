@@ -22,6 +22,7 @@
 # boerewors-sp.jpg            # Boerewors (Salt & Pepper)
 boerewors-farm-style.jpg      # Boerewors (Farm Style)
 boerewors-cheese.jpg          # Boerewors (Cheese)
+boerewors-chilli-cheese.jpg   # Boerewors (Chilli Cheese)
 # biltong-original.jpg        # Beef Biltong (Original)
 # biltong-sp.jpg              # Beef Biltong (Salt & Pepper)
 # drywors-original.jpg        # Dry Wors (Original)
@@ -33,6 +34,6 @@ boerewors-cheese.jpg          # Boerewors (Cheese)
 # pork-ribeye.jpg             # Pork Ribeye Steak
 porterhouse-steak.jpg         # Porterhouse Steak (4 weeks wet aged)
 # skilpadjie.jpg              # Skilpadjie (hidden — not on the Menu sheet)
-boerewors-chilli-cheese.jpg   # Boerewors (Chilli Cheese)
+
 # Added a new product in the Google Sheet? Open the shop, press F12,
 # type  ojaaPhotoNames()  and Enter to see the filename to use.
