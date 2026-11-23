@@ -23,6 +23,8 @@
 boerewors-farm-style.jpg      # Boerewors (Farm Style)
 boerewors-cheese.jpg          # Boerewors (Cheese)
 boerewors-chilli-cheese.jpg   # Boerewors (Chilli Cheese)
+frankfurters-original.jpg     # Frankfurters (Original)
+frankfurters-cheese.jpg       # Frankfurters ( Cheddar Cheese)
 # biltong-original.jpg        # Beef Biltong (Original)
 # biltong-sp.jpg              # Beef Biltong (Salt & Pepper)
 # drywors-original.jpg        # Dry Wors (Original)
