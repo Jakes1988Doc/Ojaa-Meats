@@ -965,6 +965,11 @@ button{
     max-width:none !important;
   }
 }
+/* Five categories: ALL takes the full top row so the other four stay a
+   tidy 2 x 2 beneath it, instead of leaving one button stranded. */
+@media(max-width:479px){
+  .filter[data-category="all"]{ grid-column:1 / -1 !important; }
+}
 </style>
 
 
@@ -1068,6 +1073,7 @@ button{
         <button class="filter active" data-category="all">ALL</button>
         <button class="filter" data-category="biltong">BILTONG & DRY WORS</button>
         <button class="filter" data-category="braai">BRAAI MEATS</button>
+        <button class="filter" data-category="frankfurter">FRANKFURTERS</button>
         <button class="filter" data-category="extras">EXTRAS</button>
       </nav>
 
@@ -1085,6 +1091,7 @@ button{
     <a href="#products" data-filter="all">Shop All</a>
     <a href="#products" data-filter="biltong">Biltong & Dry Wors</a>
     <a href="#products" data-filter="braai">Braai Meats</a>
+    <a href="#products" data-filter="frankfurter">Frankfurters</a>
     <a href="#products" data-filter="extras">Extras</a>
     <div class="menu-divider"></div>
     <button id="menuOrderBtn">My Order</button>
@@ -1496,6 +1503,10 @@ function applySheetRow(p, row){
    puts it on the shop without editing this file.
    ------------------------------------------------------------ */
 const SHEET_CAT_TO_FILTER = {
+  // Checked in order and the FIRST match wins, so the specific names go
+  // first: "Pork Frankfurters" must not be caught by 'pork' and filed
+  // under braai meats.
+  'frankfurter':'frankfurter', 'frank':'frankfurter', 'vienna':'frankfurter',
   'biltong':'biltong', 'dry wors':'biltong', 'drywors':'biltong', 'droewors':'biltong',
   'wors':'braai', 'boerewors':'braai', 'steak':'braai', 'rib':'braai', 'rash':'braai',
   'pork':'braai', 'beef':'braai', 'lamb':'braai', 'chicken':'braai', 'braai':'braai',
